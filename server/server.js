@@ -41,6 +41,9 @@ async function fetchAndSaveGames() {
                 {
                     title: game.title,
                     salePrice: parseFloat(game.salePrice),
+                    storeID: game.storeID,
+                    dealID: game.dealID,
+                    storeName: game.storeName,
                     normalPrice: parseFloat(game.normalPrice),
                     saving: parseFloat(game.savings),
                     thumb: game.thumb,
