@@ -158,7 +158,7 @@ async function getGogDeals() {
                         storeName: 'GOG',
                         salePrice: final,
                         normalPrice: base,
-                        saving: calculateSaving(base, final),
+                        saving: calculateSaving(base, final, item.discount),
                         GameID: `gog-${gameID}`,
                         dealID: `gog-${gameID}`,
                         thumb: img,
@@ -192,17 +192,16 @@ async function getEpicDeals() {
         await page.setViewport({ width: 1280, height: 720 });
         await page.goto('https://store.epicgames.com/en-US/', { waitUntil: 'networkidle2', timeout: 30000 });
 
-        console.log('🔑 Сессия валидна. Собираем комбо: AAA-хиты + остальные скидки...');
+        console.log('🔑 Сессия valid. Начинаем сбор данных...');
 
         const elements = await page.evaluate(async () => {
             const url = 'https://store.epicgames.com/graphql';
             
-            // Базовый шаблон запроса
             const createPayload = (sortBy) => ({
                 operationName: "searchStoreQuery",
                 variables: {
                     category: "games/edition/base|bundles/games",
-                    count: 100, // Берем по 100 штук из каждой категории
+                    count: 100, 
                     country: "US",
                     locale: "en-US",
                     sortBy: sortBy, 
@@ -217,6 +216,8 @@ async function getEpicDeals() {
                                     title
                                     id
                                     productSlug
+                                    urlSlug
+                                    offerType
                                     catalogNs { mappings { pageSlug } }
                                     keyImages { type url }
                                     price(country: $country) @include(if: $withPrice) {
@@ -229,7 +230,6 @@ async function getEpicDeals() {
             });
 
             try {
-                // First request: AAA hits (sorted by current price)
                 const resAAA = await fetch(url, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -238,7 +238,6 @@ async function getEpicDeals() {
                 const jsonAAA = await resAAA.json();
                 const itemsAAA = jsonAAA?.data?.Catalog?.searchStore?.elements || [];
 
-                // Second request: All other on-sale games (sorted by release date)
                 const resFresh = await fetch(url, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -247,7 +246,6 @@ async function getEpicDeals() {
                 const jsonFresh = await resFresh.json();
                 const itemsFresh = jsonFresh?.data?.Catalog?.searchStore?.elements || [];
 
-                // Add deduplication logic here
                 const allItems = [...itemsAAA, ...itemsFresh];
                 const uniqueMap = new Map();
                 
@@ -274,10 +272,32 @@ async function getEpicDeals() {
 
             if (base === null || discount === null || discount >= base) return;
 
-            const pageSlug = item.catalogNs?.mappings?.[0]?.pageSlug || item.productSlug;
-            if (!item.title || !pageSlug) return;
+            let slug = null;
 
-            // Search for the best available image
+            // 1. В приоритете ищем валидный pageSlug из маппингов (кроме заглушки "home")
+            if (item.catalogNs?.mappings && item.catalogNs.mappings.length > 0) {
+                const validMapping = item.catalogNs.mappings.find(m => m.pageSlug && m.pageSlug !== 'home');
+                if (validMapping) {
+                    slug = validMapping.pageSlug;
+                }
+            }
+
+            // 2. Если в маппингах пусто, берем productSlug (это чистый слаг страницы игры)
+            if (!slug && item.productSlug) {
+                slug = item.productSlug;
+            }
+
+            // 3. Фолбэк на urlSlug (дополнительная страховка)
+            if (!slug && item.urlSlug) {
+                slug = item.urlSlug;
+            }
+
+            // Пропускаем некорректные страницы во избежание 404
+            if (!slug || slug === 'home' || slug.trim() === '' || !item.title) return;
+
+            // Чистим слаг от системных хвостов Epic Games
+            slug = slug.replace(/\/home$/, '').replace(/\/purchase$/, '').trim();
+
             const imageObj = (item.keyImages || []).find(img => 
                 img.type === 'OfferImageWide' || 
                 img.type === 'DieselStoreFrontWide' || 
@@ -286,22 +306,27 @@ async function getEpicDeals() {
             const image = imageObj ? imageObj.url : '';
             const gameID = item.id; 
 
-            // Add to games array
+            // --- ИСПРАВЛЕНИЕ: Используем offerType и жесткую локаль en-US ---
+            const isBundle = item.offerType === 'BUNDLE';
+            const finalUrl = isBundle 
+                ? `https://store.epicgames.com/en-US/bundles/${slug}`
+                : `https://store.epicgames.com/en-US/p/${slug}`;
+                
             games.push({
                 title: item.title,
                 storeID: 'epic',
                 storeName: 'Epic Games',
                 salePrice: discount,
                 normalPrice: base,
-                saving: calculateSaving(base, discount),
+                saving: calculateSaving(base, discount, 0),
                 GameID: `epic-${gameID}`,
                 dealID: `epic-${gameID}`,
                 thumb: image,
-                url: `https://store.epicgames.com/en-US/p/${pageSlug}`
+                url: finalUrl
             });
         });
 
-        console.log(`✅ [Epic Games] Успешно собрано микса из AAA и инди игр: ${games.length}`);
+        console.log(`✅ [Epic Games] Сбор завершен. Успешно собрано игр: ${games.length}`);
         return games;
 
     } catch (err) {

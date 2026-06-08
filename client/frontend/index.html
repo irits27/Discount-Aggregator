@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Nebula Deals</title>
     <style>
-        /* Плавная прокрутка */
         html { scroll-behavior: smooth; }
 
         :root { 
@@ -28,7 +27,6 @@
             overflow-x: hidden;
         }
 
-        /* Анимированный фон с градиентами */
         body::before {
             content: "";
             position: fixed;
@@ -40,7 +38,6 @@
             animation: bgShift 20s ease infinite; 
         }
 
-        /* Канвас для частиц на заднем фоне */
         #canvas-bg {
             position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
             z-index: -1; pointer-events: none; 
@@ -52,13 +49,11 @@
             100% { background-position: 0% 50%; }
         }
 
-        /* Скроллбар */
         ::-webkit-scrollbar { width: 8px; }
         ::-webkit-scrollbar-track { background: var(--bg-dark); }
         ::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: var(--accent-purple); }
 
-        /* Шапка */
         header { 
             display: flex; justify-content: space-between; align-items: center; 
             border-bottom: 1px solid var(--glass-border); 
@@ -71,7 +66,6 @@
         .logo-container:hover .site-logo { transform: rotate(-5deg) scale(1.05); }
         h1 { margin: 0; text-shadow: 0 0 15px rgba(0, 255, 240, 0.3); }
 
-        /* Кнопки в шапке */
         .btn-action { 
             background: linear-gradient(45deg, var(--accent-purple), var(--accent-cyan)); 
             border: none; color: white; padding: 10px 20px; font-weight: bold; 
@@ -80,13 +74,11 @@
         }
         .btn-action:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0, 255, 240, 0.4); }
 
-        /* Основная сетка страницы */
         .main-container { 
             display: grid; grid-template-columns: 300px 1fr; gap: 30px; 
             position: relative; z-index: 1; 
         }
 
-        /* Сайдбар с фильтрами */
         .filters-panel { 
             background-color: var(--glass-bg); 
             backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px); 
@@ -101,10 +93,7 @@
             padding-bottom: 10px; color: var(--accent-cyan); letter-spacing: 1px;
         }
 
-        /* КРАСИВЫЕ КНОПКИ-ФИЛЬТРЫ (вместо чекбоксов) */
-        .filter-buttons-wrapper {
-            display: flex; flex-direction: column; gap: 12px;
-        }
+        .filter-buttons-wrapper { display: flex; flex-direction: column; gap: 12px; }
         
         .filter-btn {
             position: relative; cursor: pointer; display: flex; align-items: center;
@@ -115,47 +104,30 @@
             user-select: none; overflow: visible;
         }
         
-        .filter-btn input { display: none; /* Прячем стандартный чекбокс */ }
+        .filter-btn input { display: none; }
+        .filter-btn span { color: #888; font-weight: bold; transition: 0.3s; pointer-events: none; display: flex; align-items: center; gap: 10px; width: 100%; }
         
-        .filter-btn span { 
-            color: #888; font-weight: bold; transition: 0.3s; pointer-events: none;
-            display: flex; align-items: center; gap: 10px; width: 100%;
-        }
-        
-        /* Состояние: Включено */
         .filter-btn:has(input:checked) {
             background: rgba(0, 255, 240, 0.1);
             border-color: var(--accent-cyan);
             transform: scale(1.03);
             box-shadow: 0 4px 15px rgba(0, 255, 240, 0.15);
         }
-        .filter-btn:has(input:checked) span { 
-            color: var(--accent-cyan); 
-            text-shadow: 0 0 10px rgba(0, 255, 240, 0.5); 
-        }
+        .filter-btn:has(input:checked) span { color: var(--accent-cyan); text-shadow: 0 0 10px rgba(0, 255, 240, 0.5); }
 
-        /* Индикатор-точка внутри кнопки */
-        .status-dot {
-            width: 8px; height: 8px; border-radius: 50%; background: #444; transition: 0.3s;
-        }
+        .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #444; transition: 0.3s; }
         .filter-btn input:checked + span .status-dot { background: var(--accent-cyan); box-shadow: 0 0 8px var(--accent-cyan); }
 
-        /* ИСКРЫ ПРИ НАЖАТИИ */
         .spark {
-            position: absolute;
-            width: 5px; height: 5px; border-radius: 50%;
-            pointer-events: none;
-            top: 50%; left: 10px; /* Откуда вылетают */
-            transform: translate(-50%, -50%);
-            animation: shoot 0.6s cubic-bezier(0.25, 1, 0.5, 1) forwards;
-            z-index: 10;
+            position: absolute; width: 5px; height: 5px; border-radius: 50%; pointer-events: none;
+            top: 50%; left: 10px; transform: translate(-50%, -50%);
+            animation: shoot 0.6s cubic-bezier(0.25, 1, 0.5, 1) forwards; z-index: 10;
         }
         @keyframes shoot {
             0% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
             100% { transform: translate(var(--tx), var(--ty)) scale(0); opacity: 0; }
         }
 
-        /* Поля ввода цены и скидки */
         .price-inputs { display: flex; gap: 10px; width: 100%; }
         .input-wrapper { position: relative; flex: 1; min-width: 0; }
         .input-wrapper .currency { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: #666; font-size: 14px; font-weight: bold; pointer-events: none; }
@@ -188,25 +160,40 @@
 
         .grid-wrapper.is-loading .nebula-loader { opacity: 1; visibility: visible; }
 
-        /* Сетка игр */
         .games-grid { 
             display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 25px; 
-            transition: opacity 0.4s ease, filter 0.4s ease;
+            transition: opacity 0.3s ease, filter 0.3s ease;
         }
         
-        /* Плавное размытие при загрузке */
-        .games-grid.updating { 
-            opacity: 0.3; filter: blur(6px) grayscale(50%); pointer-events: none; 
-        }
+        .games-grid.updating { opacity: 0.1; filter: blur(10px); pointer-events: none; }
 
-        /* Карточка игры */
+        /* --- АНИМАЦИЯ ПЛАВНОГО ПОЯВЛЕНИЯ КАРТОЧЕК --- */
         .game-card { 
             background-color: var(--glass-bg); backdrop-filter: blur(10px); 
             border: 1px solid var(--glass-border); border-radius: 16px; 
             overflow: hidden; display: flex; flex-direction: column; 
-            will-change: transform; transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.4s;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+            
+            /* Свойства для анимации */
+            opacity: 0;
+            transform: translateY(30px) scale(0.96);
+            animation: cardFadeIn 0.6s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+            
+            transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.4s, box-shadow 0.4s;
         }
-        .game-card:hover { transform: translateY(-8px); border-color: rgba(0, 255, 240, 0.3); }
+        
+        @keyframes cardFadeIn {
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+
+        .game-card:hover { 
+            transform: translateY(-8px) scale(1.02); 
+            border-color: rgba(0, 255, 240, 0.4); 
+            box-shadow: 0 12px 30px rgba(0, 255, 240, 0.15);
+        }
 
         .game-thumb-wrapper { position: relative; width: 100%; padding-top: 56.25%; background: #111; }
         .game-thumb { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }
@@ -297,37 +284,25 @@
         
         let filterTimeout;
 
-        // --- ЭФФЕКТ ИСКР ПРИ НАЖАТИИ ---
         function spawnSparks(e, btn) {
-            // Защита от двойного срабатывания (на label и на скрытый input)
             if (e.target.tagName.toLowerCase() === 'input') return;
-
             const colors = ['#00fff0', '#b000ff', '#ffffff', '#00bfff'];
-            
-            // Создаем 8-12 частиц
             const particleCount = Math.floor(Math.random() * 5) + 8;
 
             for (let i = 0; i < particleCount; i++) {
                 const spark = document.createElement('div');
                 spark.classList.add('spark');
-                
-                // Рандомный цвет из палитры
                 spark.style.background = colors[Math.floor(Math.random() * colors.length)];
                 spark.style.boxShadow = `0 0 10px ${spark.style.background}`;
 
-                // Вычисляем случайное направление полета (от 30 до 80 пикселей)
                 const angle = Math.random() * Math.PI * 2;
                 const distance = 30 + Math.random() * 50; 
                 const tx = Math.cos(angle) * distance;
                 const ty = Math.sin(angle) * distance;
                 
-                // Передаем переменные в CSS анимацию
                 spark.style.setProperty('--tx', `${tx}px`);
                 spark.style.setProperty('--ty', `${ty}px`);
-                
                 btn.appendChild(spark);
-                
-                // Удаляем элемент после завершения анимации
                 setTimeout(() => spark.remove(), 600);
             }
         }
@@ -337,17 +312,14 @@
             imgElement.src = fallbackSvg;
         }
 
-        // --- УПРАВЛЕНИЕ АНИМАЦИЕЙ ЗАГРУЗКИ ---
         function triggerFilterAnim() {
             const grid = document.getElementById('gamesGrid');
             const wrapper = document.querySelector('.grid-wrapper');
             
-            // Включаем эффект блюра и показываем лоадер
             grid.classList.add('updating');
             wrapper.classList.add('is-loading'); 
             
             clearTimeout(filterTimeout);
-            // Добавляем искусственную микрозадержку (400мс), чтобы анимация выглядела плавно и юзер ее заметил
             filterTimeout = setTimeout(() => { loadGames(); }, 400); 
         }
 
@@ -385,8 +357,11 @@
                             if (match && match[1]) currentImg = `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${match[1]}/header.jpg`;
                         }
 
+                        // --- КАСКАДНАЯ ЗАДЕРЖКА ПОЯВЛЕНИЯ КАРТОЧЕК ---
+                        const delay = Math.min(index * 40, 1000);
+
                         return `
-                            <div class="game-card">
+                            <div class="game-card" style="animation-delay: ${delay}ms;">
                                 <div class="game-thumb-wrapper">
                                     <img class="game-thumb" src="${currentImg}" alt="${game.title}" referrerpolicy="no-referrer" onerror="handleImageError(this)">
                                     <span class="store-badge badge-${game.storeID}">${game.storeName}</span>
@@ -398,7 +373,7 @@
                                         <span class="sale-price">$${game.salePrice}</span>
                                         <span class="old-price">$${game.normalPrice}</span>
                                     </div>
-                                    <a href="${game.url}" target="_blank" class="buy-btn">В магазин</a>
+                                    <a href="${game.url}" target="_blank" rel="noopener noreferrer" class="buy-btn">В магазин</a>
                                 </div>
                             </div>
                         `;
@@ -407,7 +382,6 @@
             } catch (err) {
                 grid.innerHTML = `<h2 style="color: #ff0055; grid-column: 1/-1; text-align: center;">Ошибка соединения</h2>`;
             } finally {
-                // Убираем блюр и лоадер после рендера карточек
                 requestAnimationFrame(() => { 
                     grid.classList.remove('updating'); 
                     wrapper.classList.remove('is-loading');
@@ -416,10 +390,10 @@
         }
 
         async function fetchNewDeals() {
-            triggerFilterAnim(); // Запускаем анимацию на время парсинга
+            triggerFilterAnim();
             try { 
                 await fetch(`${API_URL}/fetch-now`); 
-                loadGames(); // Перезагружаем после парсинга
+                loadGames();
             } catch(e) { 
                 alert('Ошибка парсинга!'); 
                 document.getElementById('gamesGrid').classList.remove('updating');
@@ -437,15 +411,12 @@
         
         window.onload = loadGames;
 
-        // --- АНИМАЦИЯ ЧАСТИЦ (NEBULA DUST) НА ЗАДНЕМ ФОНЕ ---
+        // Космический фон (Частицы)
         const canvas = document.getElementById('canvas-bg');
         const ctx = canvas.getContext('2d');
         let particlesArray = [];
 
-        function initCanvas() {
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
-        }
+        function initCanvas() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
         window.addEventListener('resize', initCanvas);
 
         class Particle {
@@ -455,50 +426,32 @@
                 this.size = Math.random() * 2 + 0.5; 
                 this.speedX = Math.random() * 0.4 - 0.2; 
                 this.speedY = Math.random() * 0.4 - 0.2; 
-                
-                const colors = [
-                    'rgba(0, 255, 240, 0.4)', 
-                    'rgba(176, 0, 255, 0.4)', 
-                    'rgba(255, 255, 255, 0.2)'  
-                ];
+                const colors = ['rgba(0, 255, 240, 0.4)', 'rgba(176, 0, 255, 0.4)', 'rgba(255, 255, 255, 0.2)'];
                 this.color = colors[Math.floor(Math.random() * colors.length)];
             }
             update() {
-                this.x += this.speedX;
-                this.y += this.speedY;
-                if (this.x < 0) this.x = canvas.width;
-                if (this.x > canvas.width) this.x = 0;
-                if (this.y < 0) this.y = canvas.height;
-                if (this.y > canvas.height) this.y = 0;
+                this.x += this.speedX; this.y += this.speedY;
+                if (this.x < 0) this.x = canvas.width; if (this.x > canvas.width) this.x = 0;
+                if (this.y < 0) this.y = canvas.height; if (this.y > canvas.height) this.y = 0;
             }
             draw() {
-                ctx.fillStyle = this.color;
-                ctx.beginPath();
-                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
-                ctx.fill();
+                ctx.fillStyle = this.color; ctx.beginPath(); ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2); ctx.fill();
             }
         }
 
         function initParticles() {
             particlesArray = [];
             let numberOfParticles = (canvas.width * canvas.height) / 7000; 
-            for (let i = 0; i < numberOfParticles; i++) {
-                particlesArray.push(new Particle());
-            }
+            for (let i = 0; i < numberOfParticles; i++) { particlesArray.push(new Particle()); }
         }
 
         function animateParticles() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            for (let i = 0; i < particlesArray.length; i++) {
-                particlesArray[i].update();
-                particlesArray[i].draw();
-            }
+            for (let i = 0; i < particlesArray.length; i++) { particlesArray[i].update(); particlesArray[i].draw(); }
             requestAnimationFrame(animateParticles);
         }
 
-        initCanvas();
-        initParticles();
-        animateParticles();
+        initCanvas(); initParticles(); animateParticles();
     </script>
 </body>
 </html>
