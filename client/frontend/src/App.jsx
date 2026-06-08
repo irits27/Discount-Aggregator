@@ -3,12 +3,9 @@ import './App.css';
 import axios from 'axios';
 
 const STORES = {
-  '1': 'Steam',
-  '2': 'GreenManGaming',
-  '3': 'GOG',
-  '7': 'Uplay',
-  '11': 'Humble Store',
-  '25': 'Epic Games Store',
+  'steam': 'Steam',
+  'gog': 'GOG',
+  'epic': 'Epic Games Store',
 };
 
 // Отдельный компонент карточки, который умеет плавно появляться при скролле
@@ -50,7 +47,7 @@ function AnimatedGameCard({ game }) {
           <p style={{ margin: 0 }}>Normal Price: <span className="old-price">${game.normalPrice}</span></p>
         </div>
         <a 
-          href={`https://www.cheapshark.com/redirect?dealID=${game.dealID}`} 
+          href={game.url} 
           target="_blank" 
           rel="noopener noreferrer" 
           className="buy-btn"
