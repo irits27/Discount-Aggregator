@@ -6,6 +6,11 @@ const fs = require('fs');
 require('dotenv').config();
 const axios = require('axios');
 const Game = require('./models/Game');
+const puppeteer = require('puppeteer-extra');
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+
+// Инициализируем плагин скрытности один раз в самом верху файла
+puppeteer.use(StealthPlugin());
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -71,7 +76,7 @@ function isValidGameDeal(game) {
     );
 }
 
-// 1. STEAM DEALS (С гарантированным CDN)
+// 1. STEAM DEALS
 async function getSteamDeals() {
     const games = [];
     try {
@@ -127,7 +132,7 @@ async function getSteamDeals() {
     return games;
 }
 
-// 2. GOG DEALS (Исправление протоколов картинок)
+// 2. GOG DEALS
 async function getGogDeals() {
     try {
         const games = [];
@@ -144,7 +149,6 @@ async function getGogDeals() {
 
                 if (item.title && item.slug && gameID && base && final && final < base) {
                     let img = item.coverHorizontal || item.coverVertical || '';
-                    // Фикс относительных протоколов GOG (//images.gog-statics.com -> https://...)
                     if (img.startsWith('//')) img = 'https:' + img;
                     else if (img.startsWith('http://')) img = img.replace('http://', 'https://');
 
@@ -165,79 +169,174 @@ async function getGogDeals() {
             page++;
         }
         return games;
-    } catch (err) { return []; }
+    } catch (err) { 
+        console.error('Error fetching GOG deals: ', err.message);
+        return []; 
+    }
 }
 
-// 3. EPIC DEALS (Очистка вотермарок и resize параметров)
-async function getEpicDeals(){
-    try{
-        const games = [];
-        const res = await axios.get('https://store-site-backend-static.ak.epicgames.com/catalog/searchStore?locale=en-US&country=US&allowCountries=US&count=100&start=0', {
-            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
+// 3. EPIC GAMES STORE DEALS
+async function getEpicDeals() {
+    const games = [];
+    let browser = null;
+
+    try {
+        console.log('📡 [Epic Games] Запуск скрытого браузера...');
+        
+        browser = await puppeteer.launch({
+            headless: true,
+            args: ['--no-sandbox', '--disable-setuid-sandbox']
         });
-        const elements = res.data.data?.Catalog?.searchStore?.elements || [];
 
-        elements.forEach(item => {
-            const base = parseCentPrice(item.price?.totalPrice?.originalPrice);
-            const discount = parseCentPrice(item.price?.totalPrice?.discountPrice);
-            const pageSlug = item.catalogNs?.mappings?.[0]?.pageSlug || item.productSlug || item.id;
+        const page = await browser.newPage();
+        await page.setViewport({ width: 1280, height: 720 });
+        await page.goto('https://store.epicgames.com/en-US/', { waitUntil: 'networkidle2', timeout: 30000 });
 
-            if (item.title && pageSlug && base !== null && discount !== null) {
-                const gameUrl = `https://store.epicgames.com/en-US/p/${pageSlug}`;
-                const imageTypes = ['OfferImageWide', 'Landscape', 'DieselStoreFrontWide', 'Thumbnail'];
-                let image = '';
+        console.log('🔑 Сессия валидна. Собираем комбо: AAA-хиты + остальные скидки...');
+
+        const elements = await page.evaluate(async () => {
+            const url = 'https://store.epicgames.com/graphql';
+            
+            // Базовый шаблон запроса
+            const createPayload = (sortBy) => ({
+                operationName: "searchStoreQuery",
+                variables: {
+                    category: "games/edition/base|bundles/games",
+                    count: 100, // Берем по 100 штук из каждой категории
+                    country: "US",
+                    locale: "en-US",
+                    sortBy: sortBy, 
+                    sortDir: "DESC",
+                    withPrice: true
+                },
+                query: `
+                    query searchStoreQuery($category: String, $count: Int, $country: String!, $locale: String, $sortBy: String, $sortDir: String, $withPrice: Boolean = false) {
+                        Catalog {
+                            searchStore(category: $category, count: $count, country: $country, locale: $locale, sortBy: $sortBy, sortDir: $sortDir, onSale: true) {
+                                elements {
+                                    title
+                                    id
+                                    productSlug
+                                    catalogNs { mappings { pageSlug } }
+                                    keyImages { type url }
+                                    price(country: $country) @include(if: $withPrice) {
+                                        totalPrice { discountPrice originalPrice }
+                                    }
+                                }
+                            }
+                        }
+                    }`
+            });
+
+            try {
+                // First request: AAA hits (sorted by current price)
+                const resAAA = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(createPayload('currentPrice'))
+                });
+                const jsonAAA = await resAAA.json();
+                const itemsAAA = jsonAAA?.data?.Catalog?.searchStore?.elements || [];
+
+                // Second request: All other on-sale games (sorted by release date)
+                const resFresh = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(createPayload('releaseDate'))
+                });
+                const jsonFresh = await resFresh.json();
+                const itemsFresh = jsonFresh?.data?.Catalog?.searchStore?.elements || [];
+
+                // Add deduplication logic here
+                const allItems = [...itemsAAA, ...itemsFresh];
+                const uniqueMap = new Map();
                 
-                for (const type of imageTypes) {
-                    const foundImg = (item.keyImages || []).find(img => img.type === type);
-                    if (foundImg && foundImg.url) {
-                        image = foundImg.url;
-                        break;
+                allItems.forEach(item => {
+                    if (item && item.id) {
+                        uniqueMap.set(item.id, item);
                     }
-                }
+                });
 
-                // Фикс для Epic Games: убираем параметры динамического изменения размера, ломающие картинку
-                if (image.includes('?')) {
-                    image = image.split('?')[0];
-                }
-
-                const gameID = item.productSlug || item.id || item.title;
-                const saving = calculateSaving(base, discount);
-
-                if (saving > 0 && discount < base && image) {
-                    games.push({
-                        title: item.title,
-                        storeID: 'epic',
-                        storeName: 'Epic Games',
-                        salePrice: discount,
-                        normalPrice: base,
-                        saving: saving,
-                        GameID: `epic-${gameID}`,
-                        dealID: `epic-${gameID}`,
-                        thumb: image,
-                        url: gameUrl
-                    });
-                }
+                return Array.from(uniqueMap.values());
+            } catch (e) {
+                return [];
             }
         });
+
+        await browser.close();
+
+        elements.forEach(item => {
+            const totalPrice = item.price?.totalPrice;
+            if (!totalPrice) return;
+
+            const base = parseCentPrice(totalPrice.originalPrice);
+            const discount = parseCentPrice(totalPrice.discountPrice);
+
+            if (base === null || discount === null || discount >= base) return;
+
+            const pageSlug = item.catalogNs?.mappings?.[0]?.pageSlug || item.productSlug;
+            if (!item.title || !pageSlug) return;
+
+            // Search for the best available image
+            const imageObj = (item.keyImages || []).find(img => 
+                img.type === 'OfferImageWide' || 
+                img.type === 'DieselStoreFrontWide' || 
+                img.type === 'Thumbnail'
+            );
+            const image = imageObj ? imageObj.url : '';
+            const gameID = item.id; 
+
+            // Add to games array
+            games.push({
+                title: item.title,
+                storeID: 'epic',
+                storeName: 'Epic Games',
+                salePrice: discount,
+                normalPrice: base,
+                saving: calculateSaving(base, discount),
+                GameID: `epic-${gameID}`,
+                dealID: `epic-${gameID}`,
+                thumb: image,
+                url: `https://store.epicgames.com/en-US/p/${pageSlug}`
+            });
+        });
+
+        console.log(`✅ [Epic Games] Успешно собрано микса из AAA и инди игр: ${games.length}`);
         return games;
-    } catch(err){ return []; }
+
+    } catch (err) {
+        console.error(`❌ Ошибка парсинга: ${err.message}`);
+        if (browser) await browser.close();
+        return [];
+    }
 }
 
-// Синхронизация
+// Additional helper functions and routes
 async function fetchAndSaveGames(req, res) {
     try {
-        console.log('🔄 Сбор свежих скидок...');
-        const results = await Promise.allSettled([getSteamDeals(), getGogDeals(), getEpicDeals()]);
+        console.log('🔄 Сбор свежих скидок из всех магазинов...');
+        const results = await Promise.allSettled([
+            getSteamDeals(), 
+            getGogDeals(), 
+            getEpicDeals()
+        ]);
 
         const steamDeals = results[0].status === 'fulfilled' ? results[0].value : [];
         const gogDeals = results[1].status === 'fulfilled' ? results[1].value : [];
         const epicDeals = results[2].status === 'fulfilled' ? results[2].value : [];
 
         const allGames = [...steamDeals, ...gogDeals, ...epicDeals];
+        console.log(`Fetched ${allGames.length} deals in total.`);
+
         const validGames = allGames.filter(isValidGameDeal);
+        const skippedCount = allGames.length - validGames.length;
+
+        if (skippedCount > 0) {
+            console.warn(`Skipped ${skippedCount} deals with missing or invalid fields.`);
+        }
 
         let savedCount = 0;
-        for(let game of validGames) {
+        for (let game of validGames) {
             try {
                 await Game.findOneAndUpdate(
                     { url: game.url },
@@ -245,17 +344,32 @@ async function fetchAndSaveGames(req, res) {
                     { upsert: true, returnDocument: 'after', runValidators: true }
                 );
                 savedCount++;
-            } catch (dbErr) {}
+            } catch (dbErr) {
+                console.error(`Failed to save game "${game.title}" to DB: `, dbErr.message);
+            }
         }
 
-        console.log(`✅ Сохранено в БД: ${savedCount}`);
-        if(req && res) res.json({ message: 'Success', count: savedCount });
-    } catch(err) {
-        if(req && res) res.status(500).json({ error: err.message });
+        console.log(`✅ Обработано и сохранено в БД: ${savedCount}`);
+        
+        const result = { 
+            message: 'Success', 
+            count: savedCount,
+            skipped: skippedCount 
+        };
+
+        if (req && res && typeof res.json === 'function') {
+            return res.json(result);
+        }
+        return result;
+    } catch (err) {
+        console.error('Critical error in fetchAndSaveGames: ', err.message);
+        if (req && res && typeof res.status === 'function') {
+            return res.status(500).json({ error: err.message });
+        }
     }
 }
 
-// Роуты
+// Routes
 app.get('/', (req, res) => {
     const indexPath = path.join(__dirname, '..', 'index.html');
     if (fs.existsSync(indexPath)) res.sendFile(indexPath);
@@ -265,7 +379,7 @@ app.get('/', (req, res) => {
 app.use(express.static(path.join(__dirname, '..')));
 app.get('/api/fetch-now', async (req, res) => { await fetchAndSaveGames(req, res); });
 
-app.get('/api/games', async (req,res) => {
+app.get('/api/games', async (req, res) => {
     try {
         let query = {};
         if (req.query.store) query.storeID = { $in: req.query.store.split(',') };
@@ -278,7 +392,7 @@ app.get('/api/games', async (req,res) => {
 
         const games = await Game.find(query).sort({ saving: -1 });
         res.json(games);
-    } catch(err) { res.status(500).json({ error: 'Failed' }); }
+    } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
 app.get('/api/clear-database', async (req, res) => {
