@@ -3,131 +3,358 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Мониторинг Скидок на Игры</title>
+    <title>Nebula Deals</title>
     <style>
-        :root { --bg-color: #1a1a1a; --card-bg: #262626; --accent: #00fff0; --text: #ffffff; }
-        body { font-family: 'Segoe UI', sans-serif; background-color: var(--bg-color); color: var(--text); margin: 0; padding: 20px; }
-        header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #333; padding-bottom: 20px; margin-bottom: 20px; }
-        button { background: linear-gradient(45deg, #007bff, #00fff0); border: none; color: white; padding: 12px 24px; font-weight: bold; border-radius: 5px; cursor: pointer; transition: 0.3s; }
-        button:hover { opacity: 0.9; transform: scale(1.02); }
-        .main-container { display: grid; grid-template-columns: 300px 1fr; gap: 20px; }
-        .filters-panel { background-color: var(--card-bg); padding: 20px; border-radius: 8px; height: fit-content; }
-        .filter-group { margin-bottom: 20px; }
-        .filter-group h3 { margin-top: 0; border-bottom: 1px solid #444; padding-bottom: 5px; }
-        .filter-group label { display: flex; align-items: center; margin-bottom: 8px; cursor: pointer; }
-        .filter-group input[type="checkbox"] { margin-right: 10px; }
-        .price-inputs { display: flex; gap: 10px; }
-        .price-inputs input { width: 100%; padding: 8px; background: #333; border: 1px solid #555; color: white; border-radius: 4px; }
-        .games-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; }
-        .game-card { background-color: var(--card-bg); border-radius: 8px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.5); transition: 0.3s; display: flex; flex-direction: column; }
-        .game-card:hover { transform: translateY(-5px); }
-        .game-thumb-wrapper { position: relative; width: 100%; padding-top: 56.25%; background: linear-gradient(135deg, #111 0%, #222 100%); }
-        .game-thumb { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }
-        .store-badge { position: absolute; top: 10px; right: 10px; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; color: white; z-index: 2; }
-        .badge-steam { background-color: #1b2838; border: 1px solid #66c0f4; }
-        .badge-epic { background-color: #2a2a2a; border: 1px solid #00fff0; }
-        .badge-gog { background-color: #5c2766; border: 1px solid #bf34db; }
-        .game-info { padding: 15px; display: flex; flex-direction: column; flex-grow: 1; }
-        .game-title { font-size: 16px; font-weight: bold; margin: 0 0 10px 0; height: 44px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-        .price-row { display: flex; align-items: center; gap: 10px; margin-top: auto; }
-        .sale-price { font-size: 20px; color: #00ff66; font-weight: bold; }
-        .old-price { text-decoration: line-through; color: #888; font-size: 14px; }
-        .discount-tag { background-color: #cc0000; color: white; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 14px; }
-        .buy-btn { display: block; text-align: center; background: #333; color: white; text-decoration: none; padding: 10px; margin-top: 12px; border-radius: 4px; font-weight: bold; border: 1px solid #555; transition: 0.2s; }
-        .buy-btn:hover { background: #444; border-color: var(--accent); }
+        /* Плавная прокрутка */
+        html { scroll-behavior: smooth; }
 
-        /* Стильная кастомная заглушка */
-        .no-image-placeholder {
-            position: absolute;
+        :root { 
+            --bg-dark: #0b0c10; 
+            --glass-bg: rgba(22, 24, 32, 0.7);
+            --glass-border: rgba(255, 255, 255, 0.08);
+            --accent-cyan: #00fff0; 
+            --accent-purple: #b000ff;
+            --text: #e0e6ed; 
+        }
+
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            background: var(--bg-dark);
+            color: var(--text); 
+            margin: 0; 
+            padding: 20px; 
+            min-height: 100vh;
+            position: relative;
+            overflow-x: hidden;
+        }
+
+        /* Анимированный фон с градиентами */
+        body::before {
+            content: "";
+            position: fixed;
             top: 0; left: 0; width: 100%; height: 100%;
-            background: linear-gradient(135deg, #1f1c2c 0%, #928dab 100%);
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            text-align: center;
-            padding: 15px;
-            box-sizing: border-box;
-            border-bottom: 1px solid #444;
+            z-index: -2; 
+            background: radial-gradient(circle at 20% 30%, rgba(176, 0, 255, 0.15), transparent 40%),
+                        radial-gradient(circle at 80% 70%, rgba(0, 255, 240, 0.1), transparent 40%);
+            background-size: 200% 200%;
+            animation: bgShift 20s ease infinite; 
         }
-        .no-image-placeholder .icon {
-            font-size: 24px;
-            margin-bottom: 8px;
+
+        /* Канвас для частиц на заднем фоне */
+        #canvas-bg {
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            z-index: -1; pointer-events: none; 
         }
-        .no-image-placeholder .title-fallback {
-            font-size: 12px;
-            font-weight: bold;
-            color: #00fff0;
-            text-shadow: 0 0 8px rgba(0,255,240,0.4);
-            display: -webkit-box;
-            -webkit-line-clamp: 2;
-            -webkit-box-orient: vertical;
-            overflow: hidden;
+
+        @keyframes bgShift {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
         }
+
+        /* Скроллбар */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: var(--bg-dark); }
+        ::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--accent-purple); }
+
+        /* Шапка */
+        header { 
+            display: flex; justify-content: space-between; align-items: center; 
+            border-bottom: 1px solid var(--glass-border); 
+            padding-bottom: 20px; margin-bottom: 30px; 
+            position: relative; z-index: 1; 
+        }
+
+        .logo-container { display: flex; align-items: center; gap: 15px; }
+        .site-logo { width: 45px; height: 45px; transition: transform 0.4s; }
+        .logo-container:hover .site-logo { transform: rotate(-5deg) scale(1.05); }
+        h1 { margin: 0; text-shadow: 0 0 15px rgba(0, 255, 240, 0.3); }
+
+        /* Кнопки в шапке */
+        .btn-action { 
+            background: linear-gradient(45deg, var(--accent-purple), var(--accent-cyan)); 
+            border: none; color: white; padding: 10px 20px; font-weight: bold; 
+            border-radius: 8px; cursor: pointer; transition: 0.3s; 
+            box-shadow: 0 4px 15px rgba(0, 255, 240, 0.2);
+        }
+        .btn-action:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0, 255, 240, 0.4); }
+
+        /* Основная сетка страницы */
+        .main-container { 
+            display: grid; grid-template-columns: 300px 1fr; gap: 30px; 
+            position: relative; z-index: 1; 
+        }
+
+        /* Сайдбар с фильтрами */
+        .filters-panel { 
+            background-color: var(--glass-bg); 
+            backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px); 
+            padding: 25px; border-radius: 16px; border: 1px solid var(--glass-border);
+            height: fit-content; box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+            position: sticky; top: 20px;
+        }
+
+        .filter-group { margin-bottom: 25px; }
+        .filter-group h3 { 
+            margin-top: 0; border-bottom: 1px solid var(--glass-border); 
+            padding-bottom: 10px; color: var(--accent-cyan); letter-spacing: 1px;
+        }
+
+        /* КРАСИВЫЕ КНОПКИ-ФИЛЬТРЫ (вместо чекбоксов) */
+        .filter-buttons-wrapper {
+            display: flex; flex-direction: column; gap: 12px;
+        }
+        
+        .filter-btn {
+            position: relative; cursor: pointer; display: flex; align-items: center;
+            padding: 10px 16px; border-radius: 12px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            user-select: none; overflow: visible;
+        }
+        
+        .filter-btn input { display: none; /* Прячем стандартный чекбокс */ }
+        
+        .filter-btn span { 
+            color: #888; font-weight: bold; transition: 0.3s; pointer-events: none;
+            display: flex; align-items: center; gap: 10px; width: 100%;
+        }
+        
+        /* Состояние: Включено */
+        .filter-btn:has(input:checked) {
+            background: rgba(0, 255, 240, 0.1);
+            border-color: var(--accent-cyan);
+            transform: scale(1.03);
+            box-shadow: 0 4px 15px rgba(0, 255, 240, 0.15);
+        }
+        .filter-btn:has(input:checked) span { 
+            color: var(--accent-cyan); 
+            text-shadow: 0 0 10px rgba(0, 255, 240, 0.5); 
+        }
+
+        /* Индикатор-точка внутри кнопки */
+        .status-dot {
+            width: 8px; height: 8px; border-radius: 50%; background: #444; transition: 0.3s;
+        }
+        .filter-btn input:checked + span .status-dot { background: var(--accent-cyan); box-shadow: 0 0 8px var(--accent-cyan); }
+
+        /* ИСКРЫ ПРИ НАЖАТИИ */
+        .spark {
+            position: absolute;
+            width: 5px; height: 5px; border-radius: 50%;
+            pointer-events: none;
+            top: 50%; left: 10px; /* Откуда вылетают */
+            transform: translate(-50%, -50%);
+            animation: shoot 0.6s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+            z-index: 10;
+        }
+        @keyframes shoot {
+            0% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+            100% { transform: translate(var(--tx), var(--ty)) scale(0); opacity: 0; }
+        }
+
+        /* Поля ввода цены и скидки */
+        .price-inputs { display: flex; gap: 10px; width: 100%; }
+        .input-wrapper { position: relative; flex: 1; min-width: 0; }
+        .input-wrapper .currency { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: #666; font-size: 14px; font-weight: bold; pointer-events: none; }
+        .price-inputs input { width: 100%; padding: 10px 10px 10px 25px; background: rgba(0,0,0,0.3); border: 1px solid var(--glass-border); color: white; border-radius: 8px; outline: none; box-sizing: border-box; transition: all 0.3s ease; }
+        .price-inputs input:focus { border-color: var(--accent-cyan); background: rgba(0,0,0,0.5); box-shadow: 0 0 10px rgba(0, 255, 240, 0.15); }
+        input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+        input[type=number] { -moz-appearance: textfield; }
+        input[type="range"] { accent-color: var(--accent-purple); width: 100%; cursor: pointer;}
+
+        /* ОБЕРТКА И ЛОАДЕР ДЛЯ СЕТКИ */
+        .grid-wrapper { position: relative; width: 100%; min-height: 400px; }
+        
+        .nebula-loader {
+            position: absolute; top: 150px; left: 50%;
+            transform: translateX(-50%);
+            width: 60px; height: 60px;
+            border-radius: 50%;
+            border: 3px solid transparent;
+            border-top-color: var(--accent-cyan);
+            border-bottom-color: var(--accent-purple);
+            animation: spin 1s cubic-bezier(0.68, -0.55, 0.265, 1.55) infinite;
+            opacity: 0; visibility: hidden; transition: 0.3s;
+            z-index: 10;
+            box-shadow: 0 0 20px rgba(0, 255, 240, 0.4), inset 0 0 20px rgba(176, 0, 255, 0.4);
+        }
+        @keyframes spin { 
+            0% { transform: translateX(-50%) rotate(0deg); } 
+            100% { transform: translateX(-50%) rotate(360deg); } 
+        }
+
+        .grid-wrapper.is-loading .nebula-loader { opacity: 1; visibility: visible; }
+
+        /* Сетка игр */
+        .games-grid { 
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 25px; 
+            transition: opacity 0.4s ease, filter 0.4s ease;
+        }
+        
+        /* Плавное размытие при загрузке */
+        .games-grid.updating { 
+            opacity: 0.3; filter: blur(6px) grayscale(50%); pointer-events: none; 
+        }
+
+        /* Карточка игры */
+        .game-card { 
+            background-color: var(--glass-bg); backdrop-filter: blur(10px); 
+            border: 1px solid var(--glass-border); border-radius: 16px; 
+            overflow: hidden; display: flex; flex-direction: column; 
+            will-change: transform; transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.4s;
+        }
+        .game-card:hover { transform: translateY(-8px); border-color: rgba(0, 255, 240, 0.3); }
+
+        .game-thumb-wrapper { position: relative; width: 100%; padding-top: 56.25%; background: #111; }
+        .game-thumb { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }
+        
+        .store-badge { position: absolute; top: 12px; right: 12px; padding: 5px 10px; border-radius: 6px; font-size: 11px; font-weight: bold; color: white; backdrop-filter: blur(4px); box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
+        .badge-steam { background-color: rgba(27, 40, 56, 0.8); border: 1px solid #66c0f4; }
+        .badge-epic { background-color: rgba(42, 42, 42, 0.8); border: 1px solid #ffffff; }
+        .badge-gog { background-color: rgba(92, 39, 102, 0.8); border: 1px solid #bf34db; }
+
+        .game-info { padding: 20px; display: flex; flex-direction: column; flex-grow: 1; }
+        .game-title { font-size: 16px; font-weight: bold; margin: 0 0 15px 0; height: 44px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+        .price-row { display: flex; align-items: center; gap: 12px; margin-top: auto; background: rgba(0,0,0,0.3); padding: 10px; border-radius: 8px;}
+        .discount-tag { background-color: var(--accent-purple); color: white; padding: 4px 8px; border-radius: 6px; font-weight: bold; font-size: 14px;}
+        .sale-price { font-size: 22px; color: var(--accent-cyan); font-weight: bold; }
+        .old-price { text-decoration: line-through; color: #777; font-size: 14px; }
+        .buy-btn { display: block; text-align: center; background: rgba(255,255,255,0.05); color: white; text-decoration: none; padding: 12px; margin-top: 15px; border-radius: 8px; font-weight: bold; border: 1px solid var(--glass-border); transition: 0.3s; }
+        .buy-btn:hover { background: rgba(255,255,255,0.1); border-color: var(--accent-cyan); }
     </style>
 </head>
 <body>
+    <canvas id="canvas-bg"></canvas>
+
     <header>
-        <h1>🎮 Игры со скидками</h1>
+        <div class="logo-container">
+            <svg class="site-logo" viewBox="0 0 300 300" xmlns="http://www.w3.org/2000/svg">
+                <defs><linearGradient id="grad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#b000ff"/><stop offset="100%" stop-color="#00fff0"/></linearGradient></defs>
+                <path d="M150 40 L280 240 L150 200 L20 240 Z" fill="url(#grad)" opacity="0.6"/>
+                <path d="M150 80 L240 220 L150 190 L60 220 Z" fill="url(#grad)" opacity="0.8"/>
+            </svg>
+            <h1>Nebula Deals</h1>
+        </div>
         <div>
-            <button onclick="clearDatabase()" style="background: #cc0000; margin-right: 10px;">Очистить БД</button>
-            <button onclick="fetchNewDeals()">Обновить скидки</button>
+            <button class="btn-action" onclick="clearDatabase()" style="background: linear-gradient(45deg, #ff0055, #ff4400); margin-right: 15px;">Очистить БД</button>
+            <button class="btn-action" onclick="fetchNewDeals()">Обновить скидки</button>
         </div>
     </header>
+    
     <div class="main-container">
         <aside class="filters-panel">
             <div class="filter-group">
                 <h3>Магазины</h3>
-                <label><input type="checkbox" class="store-checkbox" value="steam" checked onchange="loadGames()"> Steam</label>
-                <label><input type="checkbox" class="store-checkbox" value="epic" checked onchange="loadGames()"> Epic Games</label>
-                <label><input type="checkbox" class="store-checkbox" value="gog" checked onchange="loadGames()"> GOG</label>
+                <div class="filter-buttons-wrapper">
+                    <label class="filter-btn" onclick="spawnSparks(event, this)">
+                        <input type="checkbox" class="store-checkbox" value="steam" checked onchange="triggerFilterAnim()">
+                        <span><div class="status-dot"></div> Steam</span>
+                    </label>
+                    <label class="filter-btn" onclick="spawnSparks(event, this)">
+                        <input type="checkbox" class="store-checkbox" value="epic" checked onchange="triggerFilterAnim()">
+                        <span><div class="status-dot"></div> Epic Games</span>
+                    </label>
+                    <label class="filter-btn" onclick="spawnSparks(event, this)">
+                        <input type="checkbox" class="store-checkbox" value="gog" checked onchange="triggerFilterAnim()">
+                        <span><div class="status-dot"></div> GOG</span>
+                    </label>
+                </div>
             </div>
             <div class="filter-group">
                 <h3>Цена ($)</h3>
                 <div class="price-inputs">
-                    <input type="number" id="minPrice" placeholder="Мин" oninput="loadGames()">
-                    <input type="number" id="maxPrice" placeholder="Макс" oninput="loadGames()">
+                    <div class="input-wrapper">
+                        <span class="currency">$</span>
+                        <input type="number" id="minPrice" placeholder="Мин" oninput="triggerFilterAnim()">
+                    </div>
+                    <div class="input-wrapper">
+                        <span class="currency">$</span>
+                        <input type="number" id="maxPrice" placeholder="Макс" oninput="triggerFilterAnim()">
+                    </div>
                 </div>
             </div>
             <div class="filter-group">
                 <h3>Минимальная скидка</h3>
-                <label>
-                    <input type="range" id="minDiscount" min="0" max="90" value="0" step="10" oninput="document.getElementById('discVal').innerText = this.value + '%'; loadGames()">
-                    <span id="discVal" style="margin-left: 10px; font-weight: bold;">0%</span>
+                <label style="display:flex; align-items:center; cursor:pointer;">
+                    <input type="range" id="minDiscount" min="0" max="90" value="0" step="10" oninput="document.getElementById('discVal').innerText = this.value + '%'; triggerFilterAnim()">
+                    <span id="discVal" style="margin-left: 15px; font-weight: bold; color: var(--accent-cyan);">0%</span>
                 </label>
             </div>
         </aside>
-        <main class="games-grid" id="gamesGrid"></main>
+        
+        <div class="grid-wrapper">
+            <div class="nebula-loader"></div>
+            <main class="games-grid" id="gamesGrid"></main>
+        </div>
     </div>
+
     <script>
         const API_URL = 'http://localhost:5000/api';
-        const fallbackSvg = "data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22460%22 height=%22215%22 viewBox=%220 0 460 215%22><rect width=%22100%%22 height=%22100%%22 fill=%22%23222%22/></svg>";
+        const fallbackSvg = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 460 215'><defs><linearGradient id='grad' x1='0' y1='0' x2='1' y2='1'><stop offset='0%25' stop-color='%23b000ff'/><stop offset='100%25' stop-color='%2300fff0'/></linearGradient></defs><rect width='100%25' height='100%25' fill='%23161820'/><path d='M230 40 L380 160 L230 130 L80 160 Z' fill='url(%23grad)' opacity='0.2'/><path d='M230 65 L340 150 L230 120 L120 150 Z' fill='url(%23grad)' opacity='0.4'/><g><circle cx='230' cy='107' r='20' fill='none' stroke='url(%23grad)' stroke-width='4' opacity='0.8'/><animateTransform attributeName='transform' type='rotate' from='0 230 107' to='360 230 107' dur='4s' repeatCount='indefinite'/></g></svg>";
+        
+        let filterTimeout;
 
-        // Хранилище текущих игр на фронтенде
-        let currentGamesList = [];
+        // --- ЭФФЕКТ ИСКР ПРИ НАЖАТИИ ---
+        function spawnSparks(e, btn) {
+            // Защита от двойного срабатывания (на label и на скрытый input)
+            if (e.target.tagName.toLowerCase() === 'input') return;
 
-        // Безопасная функция обработки ошибок
-        function handleImageError(imgElement, gameID) {
-            imgElement.onerror = null; // Стоп бесконечный цикл
+            const colors = ['#00fff0', '#b000ff', '#ffffff', '#00bfff'];
             
-            // Ищем данные игры в массиве по ID, чтобы не парсить ломающие кавычки из HTML-атрибутов
-            const game = currentGamesList.find(g => g.GameID === gameID);
-            if (!game) return;
+            // Создаем 8-12 частиц
+            const particleCount = Math.floor(Math.random() * 5) + 8;
 
-            const wrapper = imgElement.parentElement;
-            if (wrapper) {
-                wrapper.innerHTML = `
-                    <div class="no-image-placeholder">
-                        <div class="icon">🎮</div>
-                        <div class="title-fallback">${game.title}</div>
-                    </div>
-                    <span class="store-badge badge-${game.storeID}">${game.storeName}</span>
-                `;
+            for (let i = 0; i < particleCount; i++) {
+                const spark = document.createElement('div');
+                spark.classList.add('spark');
+                
+                // Рандомный цвет из палитры
+                spark.style.background = colors[Math.floor(Math.random() * colors.length)];
+                spark.style.boxShadow = `0 0 10px ${spark.style.background}`;
+
+                // Вычисляем случайное направление полета (от 30 до 80 пикселей)
+                const angle = Math.random() * Math.PI * 2;
+                const distance = 30 + Math.random() * 50; 
+                const tx = Math.cos(angle) * distance;
+                const ty = Math.sin(angle) * distance;
+                
+                // Передаем переменные в CSS анимацию
+                spark.style.setProperty('--tx', `${tx}px`);
+                spark.style.setProperty('--ty', `${ty}px`);
+                
+                btn.appendChild(spark);
+                
+                // Удаляем элемент после завершения анимации
+                setTimeout(() => spark.remove(), 600);
             }
+        }
+
+        function handleImageError(imgElement) {
+            imgElement.onerror = null;
+            imgElement.src = fallbackSvg;
+        }
+
+        // --- УПРАВЛЕНИЕ АНИМАЦИЕЙ ЗАГРУЗКИ ---
+        function triggerFilterAnim() {
+            const grid = document.getElementById('gamesGrid');
+            const wrapper = document.querySelector('.grid-wrapper');
+            
+            // Включаем эффект блюра и показываем лоадер
+            grid.classList.add('updating');
+            wrapper.classList.add('is-loading'); 
+            
+            clearTimeout(filterTimeout);
+            // Добавляем искусственную микрозадержку (400мс), чтобы анимация выглядела плавно и юзер ее заметил
+            filterTimeout = setTimeout(() => { loadGames(); }, 400); 
         }
 
         async function loadGames() {
             const grid = document.getElementById('gamesGrid');
+            const wrapper = document.querySelector('.grid-wrapper');
+            
             const checkedStores = Array.from(document.querySelectorAll('.store-checkbox:checked')).map(cb => cb.value);
             const minPrice = document.getElementById('minPrice').value;
             const maxPrice = document.getElementById('maxPrice').value;
@@ -141,66 +368,137 @@
 
             try {
                 const res = await fetch(`${API_URL}/games?${params.toString()}`);
-                const games = await res.json();
-                grid.innerHTML = '';
+                let games = await res.json();
                 
                 if (!games || games.length === 0) {
                     grid.innerHTML = `<h2 style="grid-column: 1/-1; text-align: center; color: #888;">Игр не найдено 😕</h2>`;
-                    return;
-                }
-
-                // Сохраняем свежий пул игр в оперативную память фронтенда
-                currentGamesList = games;
-                
-                grid.innerHTML = games.map(game => {
-                    let currentImg = game.thumb ? game.thumb : fallbackSvg;
+                } else {
+                    games.sort((a, b) => {
+                        if (b.normalPrice !== a.normalPrice) return b.normalPrice - a.normalPrice;
+                        return b.saving - a.saving;
+                    });
                     
-                    if (currentImg.includes('steam')) {
-                        const match = currentImg.match(/(?:apps|capsules|steamcommunity.*?\/)\/([0-9]+)/) || currentImg.match(/\/([0-9]+)\//);
-                        if (match && match[1]) {
-                            currentImg = `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${match[1]}/header.jpg`;
-                        } else if (currentImg.startsWith('http://')) {
-                            currentImg = currentImg.replace('http://', 'https://');
+                    grid.innerHTML = games.map((game, index) => {
+                        let currentImg = game.thumb ? game.thumb : fallbackSvg;
+                        if (currentImg.includes('steam')) {
+                            const match = currentImg.match(/(?:apps|capsules|steamcommunity.*?\/)\/([0-9]+)/) || currentImg.match(/\/([0-9]+)\//);
+                            if (match && match[1]) currentImg = `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${match[1]}/header.jpg`;
                         }
-                    } else if (currentImg.startsWith('http://')) {
-                        currentImg = currentImg.replace('http://', 'https://');
-                    }
 
-                    return `
-                        <div class="game-card">
-                            <div class="game-thumb-wrapper">
-                                <img class="game-thumb" src="${currentImg}" alt="${game.title}" referrerpolicy="no-referrer" 
-                                     onerror="handleImageError(this, '${game.GameID}')">
-                                <span class="store-badge badge-${game.storeID}">${game.storeName}</span>
-                            </div>
-                            <div class="game-info">
-                                <h2 class="game-title">${game.title}</h2>
-                                <div class="price-row">
-                                    <span class="discount-tag">-${game.saving}%</span>
-                                    <span class="sale-price">$${game.salePrice}</span>
-                                    <span class="old-price">$${game.normalPrice}</span>
+                        return `
+                            <div class="game-card">
+                                <div class="game-thumb-wrapper">
+                                    <img class="game-thumb" src="${currentImg}" alt="${game.title}" referrerpolicy="no-referrer" onerror="handleImageError(this)">
+                                    <span class="store-badge badge-${game.storeID}">${game.storeName}</span>
                                 </div>
-                                <a href="${game.url}" target="_blank" class="buy-btn">Открыть в магазине</a>
+                                <div class="game-info">
+                                    <h2 class="game-title">${game.title}</h2>
+                                    <div class="price-row">
+                                        <span class="discount-tag">-${game.saving}%</span>
+                                        <span class="sale-price">$${game.salePrice}</span>
+                                        <span class="old-price">$${game.normalPrice}</span>
+                                    </div>
+                                    <a href="${game.url}" target="_blank" class="buy-btn">В магазин</a>
+                                </div>
                             </div>
-                        </div>
-                    `;
-                }).join('');
+                        `;
+                    }).join('');
+                }
             } catch (err) {
-                grid.innerHTML = `<h2 style="color: red; grid-column: 1/-1;">Ошибка сервера при получении игр.</h2>`;
+                grid.innerHTML = `<h2 style="color: #ff0055; grid-column: 1/-1; text-align: center;">Ошибка соединения</h2>`;
+            } finally {
+                // Убираем блюр и лоадер после рендера карточек
+                requestAnimationFrame(() => { 
+                    grid.classList.remove('updating'); 
+                    wrapper.classList.remove('is-loading');
+                });
             }
         }
 
         async function fetchNewDeals() {
-            alert('Запущен сбор скидок. Это займет около 10-15 секунд...');
-            try { await fetch(`${API_URL}/fetch-now`); loadGames(); } catch(e) { alert('Ошибка при обновлении!'); }
+            triggerFilterAnim(); // Запускаем анимацию на время парсинга
+            try { 
+                await fetch(`${API_URL}/fetch-now`); 
+                loadGames(); // Перезагружаем после парсинга
+            } catch(e) { 
+                alert('Ошибка парсинга!'); 
+                document.getElementById('gamesGrid').classList.remove('updating');
+                document.querySelector('.grid-wrapper').classList.remove('is-loading');
+            }
         }
 
         async function clearDatabase() {
-            if(confirm('Вы уверены, что хотите очистить БД?')) {
-                await fetch(`${API_URL}/clear-database`); loadGames();
+            if(confirm('Очистить БД?')) { 
+                triggerFilterAnim();
+                await fetch(`${API_URL}/clear-database`); 
+                loadGames();
             }
         }
+        
         window.onload = loadGames;
+
+        // --- АНИМАЦИЯ ЧАСТИЦ (NEBULA DUST) НА ЗАДНЕМ ФОНЕ ---
+        const canvas = document.getElementById('canvas-bg');
+        const ctx = canvas.getContext('2d');
+        let particlesArray = [];
+
+        function initCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', initCanvas);
+
+        class Particle {
+            constructor() {
+                this.x = Math.random() * canvas.width;
+                this.y = Math.random() * canvas.height;
+                this.size = Math.random() * 2 + 0.5; 
+                this.speedX = Math.random() * 0.4 - 0.2; 
+                this.speedY = Math.random() * 0.4 - 0.2; 
+                
+                const colors = [
+                    'rgba(0, 255, 240, 0.4)', 
+                    'rgba(176, 0, 255, 0.4)', 
+                    'rgba(255, 255, 255, 0.2)'  
+                ];
+                this.color = colors[Math.floor(Math.random() * colors.length)];
+            }
+            update() {
+                this.x += this.speedX;
+                this.y += this.speedY;
+                if (this.x < 0) this.x = canvas.width;
+                if (this.x > canvas.width) this.x = 0;
+                if (this.y < 0) this.y = canvas.height;
+                if (this.y > canvas.height) this.y = 0;
+            }
+            draw() {
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        function initParticles() {
+            particlesArray = [];
+            let numberOfParticles = (canvas.width * canvas.height) / 7000; 
+            for (let i = 0; i < numberOfParticles; i++) {
+                particlesArray.push(new Particle());
+            }
+        }
+
+        function animateParticles() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            for (let i = 0; i < particlesArray.length; i++) {
+                particlesArray[i].update();
+                particlesArray[i].draw();
+            }
+            requestAnimationFrame(animateParticles);
+        }
+
+        initCanvas();
+        initParticles();
+        animateParticles();
     </script>
 </body>
 </html>
