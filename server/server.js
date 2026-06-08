@@ -2,6 +2,7 @@ const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const path = require('path');
+const fs = require('fs'); 
 require('dotenv').config();
 const axios = require('axios');
 const Game = require('./models/Game');
@@ -13,12 +14,18 @@ const port = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
+// CSP Headers
 app.use((req, res, next) => {
-    res.setHeader('Content-Security-Policy', "default-src 'self' localhost:* http://localhost:*; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self' localhost:* http://localhost:* https:; img-src 'self' https: data:;");
+    res.setHeader(
+        'Content-Security-Policy', 
+        "default-src 'self' http://localhost:* http://127.0.0.1:*; " +
+        "style-src 'self' 'unsafe-inline'; " +
+        "script-src 'self' 'unsafe-inline'; " +
+        "connect-src 'self' http://localhost:* http://127.0.0.1:* https:; " +
+        "img-src 'self' https: data:;"
+    );
     next();
 });
-
-app.use(express.static(path.join(__dirname)));
 
 // Connect to MongoDB
 mongoose.connect(process.env.MONGO_URI)
@@ -31,19 +38,13 @@ function roundPrice(value) {
 
 function parseMoney(value) {
     if (value === null || value === undefined || value === '') return null;
-
-    if (typeof value === 'number') {
-        return Number.isFinite(value) ? roundPrice(value) : null;
-    }
-
+    if (typeof value === 'number') return Number.isFinite(value) ? roundPrice(value) : null;
     if (typeof value === 'string') {
         const normalized = value.replace(',', '.').match(/-?\d+(\.\d+)?/);
         if (!normalized) return null;
-
         const parsed = Number(normalized[0]);
         return Number.isFinite(parsed) ? roundPrice(parsed) : null;
     }
-
     return null;
 }
 
@@ -56,143 +57,97 @@ function parseCentPrice(value) {
 function calculateSaving(normalPrice, salePrice, fallbackPercent) {
     const fallback = Number(fallbackPercent);
     if (Number.isFinite(fallback) && fallback > 0) return Math.max(0, Math.round(fallback));
-
     if (normalPrice > 0 && Number.isFinite(salePrice)) {
         return Math.max(0, Math.round(((normalPrice - salePrice) / normalPrice) * 100));
     }
-
     return 0;
 }
 
 function isValidGameDeal(game) {
     return Boolean(
-        game &&
-        game.title &&
-        game.GameID &&
-        game.dealID &&
-        game.storeID &&
-        game.storeName &&
-        game.url &&
-        Number.isFinite(game.salePrice) &&
-        Number.isFinite(game.normalPrice) &&
-        Number.isFinite(game.saving) &&
-        !isNaN(game.salePrice) &&
-        !isNaN(game.normalPrice) &&
-        !isNaN(game.saving)
+        game && game.title && game.GameID && game.dealID && game.storeID && 
+        game.storeName && game.url && game.thumb &&
+        Number.isFinite(game.salePrice) && Number.isFinite(game.normalPrice)
     );
 }
 
-// Function to get deals from Steam
+// 1. STEAM DEALS (С гарантированным CDN)
 async function getSteamDeals() {
     const games = [];
-    const gameUrls = new Set();
-    const debugLog = [];
-
     try {
-        debugLog.push('[Steam] Starting Steam deals fetch...');
-
         for (let page = 0; page < 3; page++) {
             try {
-                const url = `https://store.steampowered.com/search/results?query=&count=50&start=${page * 50}&infinite=1`;
-
+                const url = `https://store.steampowered.com/search/results/?query=&start=${page * 50}&count=50&specials=1&infinite=1&json=1`;
                 const response = await axios.get(url, {
-                    headers: { 'User-Agent': 'Mozilla/5.0' },
+                    headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
                     timeout: 20000
                 });
-
-                if (!response.data || !response.data.results_html) {
-                    debugLog.push(`[Steam] No results_html on page ${page}`);
-                    break;
-                }
+                if (!response.data || !response.data.results_html) break;
 
                 const html = response.data.results_html;
-                debugLog.push(`[Steam] Page ${page}: ${html.length} bytes`);
-
-                // Check what discount looks like
-                const discountMatches = html.match(/data-discount="[^"]*"/g);
-                debugLog.push(`[Steam] Found ${discountMatches?.length || 0} data-discount attributes`);
-
-                if (discountMatches && discountMatches.length > 0) {
-                    debugLog.push(`[Steam] Sample: ${discountMatches[0]}`);
-                }
-
-                // Check price
-                const priceMatches = html.match(/data-price-final="[^"]*"/g);
-                debugLog.push(`[Steam] Found ${priceMatches?.length || 0} data-price-final attributes`);
-
-                // Try to find them together - maybe they're not adjacent
-                const fullMatches = html.match(/data-discount="(\d+)"[\s\S]*?data-price-final="(\d+)"/g);
-                debugLog.push(`[Steam] Found ${fullMatches?.length || 0} combined matches with [\s\S]*?`);
-
-                // Just count for now
-                let gameCount = 0;
-                let foundMatches = 0;
-
-                // Look for discount blocks
-                const discountRegex = /data-discount="(\d+)"/g;
+                const rowRegex = /<a[^>]+class="[^"]*search_result_row[^"]*"[^>]*>([\s\S]*?)<\/a>/g;
                 let match;
-                while ((match = discountRegex.exec(html)) !== null) {
-                    foundMatches++;
 
-                    // Find nearest price
-                    const searchAfter = html.substring(match.index, match.index + 500);
-                    const priceInAfter = searchAfter.match(/data-price-final="(\d+)"/);
-                    if (priceInAfter) {
-                        gameCount++;
+                while ((match = rowRegex.exec(html)) !== null) {
+                    const rowHtml = match[0];
+                    const rowContent = match[1];
+
+                    const urlMatch = rowHtml.match(/href="([^"]+)"/);
+                    const appidMatch = rowHtml.match(/data-ds-appid="(\d+)"/);
+                    const discountMatch = rowHtml.match(/data-discount="(\d+)"/);
+                    const priceMatch = rowHtml.match(/data-price-final="(\d+)"/);
+                    const titleMatch = rowContent.match(/<span class="title">([^<]+)<\/span>/);
+
+                    if (urlMatch && appidMatch && discountMatch && priceMatch && titleMatch) {
+                        const discountPercent = parseInt(discountMatch[1], 10);
+                        if (discountPercent <= 0) continue; 
+
+                        const priceFinalCents = parseInt(priceMatch[1], 10);
+                        const salePrice = roundPrice(priceFinalCents / 100);
+                        const normalPrice = discountPercent < 100 ? roundPrice(salePrice / (1 - discountPercent / 100)) : salePrice;
+                        const gameID = appidMatch[1];
+
+                        games.push({
+                            title: titleMatch[1].trim(),
+                            storeID: 'steam',
+                            storeName: 'Steam',
+                            salePrice,
+                            normalPrice,
+                            saving: discountPercent,
+                            GameID: `steam-${gameID}`,
+                            dealID: `steam-${gameID}`,
+                            thumb: `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${gameID}/header.jpg`,
+                            url: urlMatch[1].split('?')[0]
+                        });
                     }
                 }
-
-                debugLog.push(`[Steam] Page ${page}: ${foundMatches} discount lines, ${gameCount} with prices`);
-
-                if (page === 0) {
-                    // Save sample HTML for inspection
-                    fs.writeFileSync('./steam-sample.html', html.substring(0, 5000));
-                }
-
-                if (gameCount === 0) break;
-            } catch (e) {
-                debugLog.push(`[Steam] Error page ${page}: ${e.message}`);
-                break;
-            }
+            } catch (e) { break; }
         }
-
-        fs.writeFileSync('./steam-debug.log', debugLog.join('\n'));
-    } catch (err) {
-        const debugLog = [`[Steam] Fatal: ${err.message}`];
-        fs.writeFileSync('./steam-debug.log', debugLog.join('\n'));
-    }
-
+    } catch (err) {}
     return games;
 }
 
-// Function to get deals from GOG
+// 2. GOG DEALS (Исправление протоколов картинок)
 async function getGogDeals() {
     try {
         const games = [];
         let page = 1;
-        let hasMore = true;
-
-        while (hasMore && page <= 10) {
+        while (page <= 3) { 
             const response = await axios.get(`https://catalog.gog.com/v1/catalog?order=desc:discount&page=${page}&price=discounted&limit=50`);
             const products = response.data.products || [];
-
-            if (!products || products.length === 0) {
-                hasMore = false;
-                break;
-            }
+            if (products.length === 0) break;
 
             products.forEach(item => {
-                let base = null;
-                let final = null;
-
-                if (item.price) {
-                    base = parseMoney(item.price?.base || item.price?.basePrice);
-                    final = parseMoney(item.price?.final || item.price?.finalPrice);
-                }
-
+                let base = item.price ? parseMoney(item.price.base || item.price.basePrice) : null;
+                let final = item.price ? parseMoney(item.price.final || item.price.finalPrice) : null;
                 const gameID = item.id || item.slug;
 
-                if (item.title && item.slug && gameID && base !== null && final !== null && final < base) {
+                if (item.title && item.slug && gameID && base && final && final < base) {
+                    let img = item.coverHorizontal || item.coverVertical || '';
+                    // Фикс относительных протоколов GOG (//images.gog-statics.com -> https://...)
+                    if (img.startsWith('//')) img = 'https:' + img;
+                    else if (img.startsWith('http://')) img = img.replace('http://', 'https://');
+
                     games.push({
                         title: item.title,
                         storeID: 'gog',
@@ -202,212 +157,136 @@ async function getGogDeals() {
                         saving: calculateSaving(base, final),
                         GameID: `gog-${gameID}`,
                         dealID: `gog-${gameID}`,
-                        thumb: item.coverHorizontal || item.coverVertical,
+                        thumb: img,
                         url: `https://www.gog.com/game/${item.slug}`
                     });
                 }
             });
-
             page++;
         }
-
         return games;
-    } catch (err) {
-        console.error('Error fetching data from GOG: ', err.message);
-        return [];
-    }
+    } catch (err) { return []; }
 }
 
-// Function to get deals from Epic Games Store
+// 3. EPIC DEALS (Очистка вотермарок и resize параметров)
 async function getEpicDeals(){
     try{
         const games = [];
+        const res = await axios.get('https://store-site-backend-static.ak.epicgames.com/catalog/searchStore?locale=en-US&country=US&allowCountries=US&count=100&start=0', {
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
+        });
+        const elements = res.data.data?.Catalog?.searchStore?.elements || [];
 
-        // Try multiple Epic endpoints
-        const endpoints = [
-            'https://store-site-backend-static.ak.epicgames.com/freeGamesPromotions?locale=en-US&country=US&allowCountries=US',
-            'https://store-site-backend-static.ak.epicgames.com/freeGamesPromotions?locale=en-US',
-        ];
+        elements.forEach(item => {
+            const base = parseCentPrice(item.price?.totalPrice?.originalPrice);
+            const discount = parseCentPrice(item.price?.totalPrice?.discountPrice);
+            const pageSlug = item.catalogNs?.mappings?.[0]?.pageSlug || item.productSlug || item.id;
 
-        for (const url of endpoints) {
-            try {
-                const res = await axios.get(url, {
-                    headers: {
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            if (item.title && pageSlug && base !== null && discount !== null) {
+                const gameUrl = `https://store.epicgames.com/en-US/p/${pageSlug}`;
+                const imageTypes = ['OfferImageWide', 'Landscape', 'DieselStoreFrontWide', 'Thumbnail'];
+                let image = '';
+                
+                for (const type of imageTypes) {
+                    const foundImg = (item.keyImages || []).find(img => img.type === type);
+                    if (foundImg && foundImg.url) {
+                        image = foundImg.url;
+                        break;
                     }
-                });
-                const elements = res.data.data?.Catalog?.searchStore?.elements || [];
+                }
 
-                elements.forEach(item => {
-                    const base = parseCentPrice(item.price?.totalPrice?.originalPrice);
-                    const discount = parseCentPrice(item.price?.totalPrice?.discountPrice);
-                    const pageSlug = item.catalogNs?.mappings?.[0]?.pageSlug || item.productSlug || item.id;
+                // Фикс для Epic Games: убираем параметры динамического изменения размера, ломающие картинку
+                if (image.includes('?')) {
+                    image = image.split('?')[0];
+                }
 
-                    if (item.title && pageSlug && base !== null && discount !== null) {
-                        const gameUrl = `https://store.epicgames.com/en-US/p/${pageSlug}`;
-                        const existingGame = games.find(g => g.url === gameUrl);
+                const gameID = item.productSlug || item.id || item.title;
+                const saving = calculateSaving(base, discount);
 
-                        if (!existingGame) {
-                            const image = (item.keyImages || []).find(img => img.type === 'Thumbnail' || img.type === 'DieselStoreFrontWide')?.url || '';
-                            const gameID = item.productSlug || item.id || item.title;
-                            const saving = calculateSaving(base, discount);
-
-                            if (saving > 0) {
-                                games.push({
-                                    title: item.title,
-                                    storeID: 'epic',
-                                    storeName: 'Epic Games',
-                                    salePrice: discount,
-                                    normalPrice: base,
-                                    saving: saving,
-                                    GameID: `epic-${gameID}`,
-                                    dealID: `epic-${gameID}`,
-                                    thumb: image,
-                                    url: gameUrl
-                                });
-                            }
-                        }
-                    }
-                });
-            } catch (e) {
-                console.warn(`Failed to fetch from Epic endpoint: ${e.message}`);
+                if (saving > 0 && discount < base && image) {
+                    games.push({
+                        title: item.title,
+                        storeID: 'epic',
+                        storeName: 'Epic Games',
+                        salePrice: discount,
+                        normalPrice: base,
+                        saving: saving,
+                        GameID: `epic-${gameID}`,
+                        dealID: `epic-${gameID}`,
+                        thumb: image,
+                        url: gameUrl
+                    });
+                }
             }
-        }
-
+        });
         return games;
-    } catch(err){
-        console.error('Error fetching data from Epic Games Store: ', err.message);
-        return [];
-    }
+    } catch(err){ return []; }
 }
 
-// Function to fetch deals from all stores and save to DB
+// Синхронизация
 async function fetchAndSaveGames(req, res) {
     try {
-        console.log('Fetching deals from all stores...');
-        const results = await Promise.allSettled([
-            getSteamDeals(),
-            getGogDeals(),
-            getEpicDeals()
-        ]);
+        console.log('🔄 Сбор свежих скидок...');
+        const results = await Promise.allSettled([getSteamDeals(), getGogDeals(), getEpicDeals()]);
 
         const steamDeals = results[0].status === 'fulfilled' ? results[0].value : [];
         const gogDeals = results[1].status === 'fulfilled' ? results[1].value : [];
         const epicDeals = results[2].status === 'fulfilled' ? results[2].value : [];
 
         const allGames = [...steamDeals, ...gogDeals, ...epicDeals];
-        console.log(`Fetched ${allGames.length} deals from all stores.`);
-
         const validGames = allGames.filter(isValidGameDeal);
-        const skippedCount = allGames.length - validGames.length;
-
-        if (skippedCount > 0) {
-            console.warn(`Skipped ${skippedCount} deals with missing or invalid fields.`);
-        }
 
         let savedCount = 0;
         for(let game of validGames) {
             try {
                 await Game.findOneAndUpdate(
-                    {url: game.url},
+                    { url: game.url },
                     game,
-                    { upsert: true, returnDocument: 'after', runValidators: true}
+                    { upsert: true, returnDocument: 'after', runValidators: true }
                 );
                 savedCount++;
-            } catch (dbErr) {
-                console.error(`Failed to save game "${game.title}" to DB: `, dbErr.message);
-            }
+            } catch (dbErr) {}
         }
 
-        console.log(`Successfully processed and saved ${savedCount} deals to DB.`);
-        const result = {
-            message: 'Deals fetched and saved successfully',
-            count: savedCount,
-            skipped: skippedCount
-        };
-
-        // Если функция вызвана из HTTP-роута, отправляем ответ в ней
-        if(req && res && typeof res.json === 'function') {
-            return res.json(result);
-        }
-
-        return result;
+        console.log(`✅ Сохранено в БД: ${savedCount}`);
+        if(req && res) res.json({ message: 'Success', count: savedCount });
     } catch(err) {
-        console.error('Error fetching and saving deals: ', err);
-        if(req && res && typeof res.status === 'function') {
-            return res.status(500).json({ message: 'Failed to fetch and save deals', error: err.message });
-        }
-
-        return { message: 'Failed to fetch and save deals', error: err.message };
+        if(req && res) res.status(500).json({ error: err.message });
     }
 }
 
-// Routes
-app.get('/', (req,res) => {
-    res.sendFile(path.join(__dirname, 'index.html'));
+// Роуты
+app.get('/', (req, res) => {
+    const indexPath = path.join(__dirname, '..', 'index.html');
+    if (fs.existsSync(indexPath)) res.sendFile(indexPath);
+    else res.status(404).send(`<h2>index.html не найден</h2>`);
 });
 
-// API route to trigger game fetching
-app.get('/api/fetch-now', async (req, res) => {
-    // Передаем req и res внутрь функции, чтобы она сама корректно завершила запрос
-    await fetchAndSaveGames(req, res);
-});
+app.use(express.static(path.join(__dirname, '..')));
+app.get('/api/fetch-now', async (req, res) => { await fetchAndSaveGames(req, res); });
 
-// API route to get all games with filters
 app.get('/api/games', async (req,res) => {
     try {
         let query = {};
-
-        // Filter by store
-        if (req.query.store) {
-            const stores = req.query.store.split(',').map(s => s.trim().toLowerCase());
-            const storeMap = {
-                'steam': 'Steam',
-                'gog': 'GOG',
-                'epic': 'Epic Games'
-            };
-            const validStores = stores.map(s => storeMap[s]).filter(Boolean);
-            if (validStores.length > 0) {
-                query.storeName = { $in: validStores };
-            }
-        }
-
-        // Filter by price range
+        if (req.query.store) query.storeID = { $in: req.query.store.split(',') };
         if (req.query.minPrice || req.query.maxPrice) {
             query.salePrice = {};
-            if (req.query.minPrice) {
-                query.salePrice.$gte = parseFloat(req.query.minPrice);
-            }
-            if (req.query.maxPrice) {
-                query.salePrice.$lte = parseFloat(req.query.maxPrice);
-            }
+            if (req.query.minPrice) query.salePrice.$gte = parseFloat(req.query.minPrice);
+            if (req.query.maxPrice) query.salePrice.$lte = parseFloat(req.query.maxPrice);
         }
-
-        // Filter by discount percentage
-        if (req.query.minDiscount) {
-            query.saving = { $gte: parseInt(req.query.minDiscount) };
-        }
+        if (req.query.minDiscount) query.saving = { $gte: parseInt(req.query.minDiscount) };
 
         const games = await Game.find(query).sort({ saving: -1 });
         res.json(games);
-    } catch(err) {
-        console.error('Error fetching games from DB: ', err);
-        res.status(500).json({ success: false, error: 'Failed to fetch games' });
-    }
-});
-app.get('/api/clear-database', async (req, res) => {
-    try {
-        await Game.deleteMany({}); // Удаляет абсолютно все записи из коллекции игр
-        console.log('Database cleared successfully.');
-        res.json({ success: true, message: 'Database cleared successfully! Click "Find New Deals" to refill.' });
-    } catch (err) {
-        console.error('Error clearing database: ', err);
-        res.status(500).json({ success: false, error: 'Failed to clear database' });
-    }
-});
-// Start the server
-app.listen(port, () => {
-    console.log(`Server is running on port: ${port}`);
+    } catch(err) { res.status(500).json({ error: 'Failed' }); }
 });
 
+app.get('/api/clear-database', async (req, res) => {
+    try {
+        await Game.deleteMany({});
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ success: false }); }
+});
+
+app.listen(port, () => console.log(`🚀 Server on port: ${port}`));
 module.exports = app;

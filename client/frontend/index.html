@@ -1,13 +1,206 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>frontend</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Мониторинг Скидок на Игры</title>
+    <style>
+        :root { --bg-color: #1a1a1a; --card-bg: #262626; --accent: #00fff0; --text: #ffffff; }
+        body { font-family: 'Segoe UI', sans-serif; background-color: var(--bg-color); color: var(--text); margin: 0; padding: 20px; }
+        header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #333; padding-bottom: 20px; margin-bottom: 20px; }
+        button { background: linear-gradient(45deg, #007bff, #00fff0); border: none; color: white; padding: 12px 24px; font-weight: bold; border-radius: 5px; cursor: pointer; transition: 0.3s; }
+        button:hover { opacity: 0.9; transform: scale(1.02); }
+        .main-container { display: grid; grid-template-columns: 300px 1fr; gap: 20px; }
+        .filters-panel { background-color: var(--card-bg); padding: 20px; border-radius: 8px; height: fit-content; }
+        .filter-group { margin-bottom: 20px; }
+        .filter-group h3 { margin-top: 0; border-bottom: 1px solid #444; padding-bottom: 5px; }
+        .filter-group label { display: flex; align-items: center; margin-bottom: 8px; cursor: pointer; }
+        .filter-group input[type="checkbox"] { margin-right: 10px; }
+        .price-inputs { display: flex; gap: 10px; }
+        .price-inputs input { width: 100%; padding: 8px; background: #333; border: 1px solid #555; color: white; border-radius: 4px; }
+        .games-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; }
+        .game-card { background-color: var(--card-bg); border-radius: 8px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.5); transition: 0.3s; display: flex; flex-direction: column; }
+        .game-card:hover { transform: translateY(-5px); }
+        .game-thumb-wrapper { position: relative; width: 100%; padding-top: 56.25%; background: linear-gradient(135deg, #111 0%, #222 100%); }
+        .game-thumb { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }
+        .store-badge { position: absolute; top: 10px; right: 10px; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; color: white; z-index: 2; }
+        .badge-steam { background-color: #1b2838; border: 1px solid #66c0f4; }
+        .badge-epic { background-color: #2a2a2a; border: 1px solid #00fff0; }
+        .badge-gog { background-color: #5c2766; border: 1px solid #bf34db; }
+        .game-info { padding: 15px; display: flex; flex-direction: column; flex-grow: 1; }
+        .game-title { font-size: 16px; font-weight: bold; margin: 0 0 10px 0; height: 44px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+        .price-row { display: flex; align-items: center; gap: 10px; margin-top: auto; }
+        .sale-price { font-size: 20px; color: #00ff66; font-weight: bold; }
+        .old-price { text-decoration: line-through; color: #888; font-size: 14px; }
+        .discount-tag { background-color: #cc0000; color: white; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 14px; }
+        .buy-btn { display: block; text-align: center; background: #333; color: white; text-decoration: none; padding: 10px; margin-top: 12px; border-radius: 4px; font-weight: bold; border: 1px solid #555; transition: 0.2s; }
+        .buy-btn:hover { background: #444; border-color: var(--accent); }
+
+        /* Стильная кастомная заглушка */
+        .no-image-placeholder {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: linear-gradient(135deg, #1f1c2c 0%, #928dab 100%);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            padding: 15px;
+            box-sizing: border-box;
+            border-bottom: 1px solid #444;
+        }
+        .no-image-placeholder .icon {
+            font-size: 24px;
+            margin-bottom: 8px;
+        }
+        .no-image-placeholder .title-fallback {
+            font-size: 12px;
+            font-weight: bold;
+            color: #00fff0;
+            text-shadow: 0 0 8px rgba(0,255,240,0.4);
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>🎮 Игры со скидками</h1>
+        <div>
+            <button onclick="clearDatabase()" style="background: #cc0000; margin-right: 10px;">Очистить БД</button>
+            <button onclick="fetchNewDeals()">Обновить скидки</button>
+        </div>
+    </header>
+    <div class="main-container">
+        <aside class="filters-panel">
+            <div class="filter-group">
+                <h3>Магазины</h3>
+                <label><input type="checkbox" class="store-checkbox" value="steam" checked onchange="loadGames()"> Steam</label>
+                <label><input type="checkbox" class="store-checkbox" value="epic" checked onchange="loadGames()"> Epic Games</label>
+                <label><input type="checkbox" class="store-checkbox" value="gog" checked onchange="loadGames()"> GOG</label>
+            </div>
+            <div class="filter-group">
+                <h3>Цена ($)</h3>
+                <div class="price-inputs">
+                    <input type="number" id="minPrice" placeholder="Мин" oninput="loadGames()">
+                    <input type="number" id="maxPrice" placeholder="Макс" oninput="loadGames()">
+                </div>
+            </div>
+            <div class="filter-group">
+                <h3>Минимальная скидка</h3>
+                <label>
+                    <input type="range" id="minDiscount" min="0" max="90" value="0" step="10" oninput="document.getElementById('discVal').innerText = this.value + '%'; loadGames()">
+                    <span id="discVal" style="margin-left: 10px; font-weight: bold;">0%</span>
+                </label>
+            </div>
+        </aside>
+        <main class="games-grid" id="gamesGrid"></main>
+    </div>
+    <script>
+        const API_URL = 'http://localhost:5000/api';
+        const fallbackSvg = "data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22460%22 height=%22215%22 viewBox=%220 0 460 215%22><rect width=%22100%%22 height=%22100%%22 fill=%22%23222%22/></svg>";
+
+        // Хранилище текущих игр на фронтенде
+        let currentGamesList = [];
+
+        // Безопасная функция обработки ошибок
+        function handleImageError(imgElement, gameID) {
+            imgElement.onerror = null; // Стоп бесконечный цикл
+            
+            // Ищем данные игры в массиве по ID, чтобы не парсить ломающие кавычки из HTML-атрибутов
+            const game = currentGamesList.find(g => g.GameID === gameID);
+            if (!game) return;
+
+            const wrapper = imgElement.parentElement;
+            if (wrapper) {
+                wrapper.innerHTML = `
+                    <div class="no-image-placeholder">
+                        <div class="icon">🎮</div>
+                        <div class="title-fallback">${game.title}</div>
+                    </div>
+                    <span class="store-badge badge-${game.storeID}">${game.storeName}</span>
+                `;
+            }
+        }
+
+        async function loadGames() {
+            const grid = document.getElementById('gamesGrid');
+            const checkedStores = Array.from(document.querySelectorAll('.store-checkbox:checked')).map(cb => cb.value);
+            const minPrice = document.getElementById('minPrice').value;
+            const maxPrice = document.getElementById('maxPrice').value;
+            const minDiscount = document.getElementById('minDiscount').value;
+
+            const params = new URLSearchParams();
+            if (checkedStores.length > 0) params.append('store', checkedStores.join(','));
+            if (minPrice) params.append('minPrice', minPrice);
+            if (maxPrice) params.append('maxPrice', maxPrice);
+            if (minDiscount > 0) params.append('minDiscount', minDiscount);
+
+            try {
+                const res = await fetch(`${API_URL}/games?${params.toString()}`);
+                const games = await res.json();
+                grid.innerHTML = '';
+                
+                if (!games || games.length === 0) {
+                    grid.innerHTML = `<h2 style="grid-column: 1/-1; text-align: center; color: #888;">Игр не найдено 😕</h2>`;
+                    return;
+                }
+
+                // Сохраняем свежий пул игр в оперативную память фронтенда
+                currentGamesList = games;
+                
+                grid.innerHTML = games.map(game => {
+                    let currentImg = game.thumb ? game.thumb : fallbackSvg;
+                    
+                    if (currentImg.includes('steam')) {
+                        const match = currentImg.match(/(?:apps|capsules|steamcommunity.*?\/)\/([0-9]+)/) || currentImg.match(/\/([0-9]+)\//);
+                        if (match && match[1]) {
+                            currentImg = `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${match[1]}/header.jpg`;
+                        } else if (currentImg.startsWith('http://')) {
+                            currentImg = currentImg.replace('http://', 'https://');
+                        }
+                    } else if (currentImg.startsWith('http://')) {
+                        currentImg = currentImg.replace('http://', 'https://');
+                    }
+
+                    return `
+                        <div class="game-card">
+                            <div class="game-thumb-wrapper">
+                                <img class="game-thumb" src="${currentImg}" alt="${game.title}" referrerpolicy="no-referrer" 
+                                     onerror="handleImageError(this, '${game.GameID}')">
+                                <span class="store-badge badge-${game.storeID}">${game.storeName}</span>
+                            </div>
+                            <div class="game-info">
+                                <h2 class="game-title">${game.title}</h2>
+                                <div class="price-row">
+                                    <span class="discount-tag">-${game.saving}%</span>
+                                    <span class="sale-price">$${game.salePrice}</span>
+                                    <span class="old-price">$${game.normalPrice}</span>
+                                </div>
+                                <a href="${game.url}" target="_blank" class="buy-btn">Открыть в магазине</a>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            } catch (err) {
+                grid.innerHTML = `<h2 style="color: red; grid-column: 1/-1;">Ошибка сервера при получении игр.</h2>`;
+            }
+        }
+
+        async function fetchNewDeals() {
+            alert('Запущен сбор скидок. Это займет около 10-15 секунд...');
+            try { await fetch(`${API_URL}/fetch-now`); loadGames(); } catch(e) { alert('Ошибка при обновлении!'); }
+        }
+
+        async function clearDatabase() {
+            if(confirm('Вы уверены, что хотите очистить БД?')) {
+                await fetch(`${API_URL}/clear-database`); loadGames();
+            }
+        }
+        window.onload = loadGames;
+    </script>
+</body>
 </html>
