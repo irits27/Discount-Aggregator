@@ -84,62 +84,134 @@ function isValidGameDeal(game) {
 
 // Function to get deals from Steam
 async function getSteamDeals() {
+    const games = [];
+    const gameUrls = new Set();
+    const debugLog = [];
+
     try {
-        const response = await axios.get('https://store.steampowered.com/api/featuredcategories/?l=english');
-        const specials = response.data.specials?.items || [];
+        debugLog.push('[Steam] Starting Steam deals fetch...');
 
-        return specials.map(item => {
-            const normalPrice = parseCentPrice(item.original_price);
-            const salePrice = parseCentPrice(item.final_price);
-            const gameID = item.id;
+        for (let page = 0; page < 3; page++) {
+            try {
+                const url = `https://store.steampowered.com/search/results?query=&count=50&start=${page * 50}&infinite=1`;
 
-            if (!item.name || !gameID || normalPrice === null || salePrice === null) return null;
+                const response = await axios.get(url, {
+                    headers: { 'User-Agent': 'Mozilla/5.0' },
+                    timeout: 20000
+                });
 
-            return {
-                title: item.name,
-                storeID: 'steam',
-                storeName: 'Steam',
-                salePrice,
-                normalPrice,
-                saving: calculateSaving(normalPrice, salePrice, item.discount_percent),
-                GameID: `steam-${gameID}`,
-                dealID: `steam-${gameID}`,
-                thumb: item.large_capsule_image,
-                url: `https://store.steampowered.com/app/${gameID}`
-            };
-        }).filter(Boolean);
+                if (!response.data || !response.data.results_html) {
+                    debugLog.push(`[Steam] No results_html on page ${page}`);
+                    break;
+                }
+
+                const html = response.data.results_html;
+                debugLog.push(`[Steam] Page ${page}: ${html.length} bytes`);
+
+                // Check what discount looks like
+                const discountMatches = html.match(/data-discount="[^"]*"/g);
+                debugLog.push(`[Steam] Found ${discountMatches?.length || 0} data-discount attributes`);
+
+                if (discountMatches && discountMatches.length > 0) {
+                    debugLog.push(`[Steam] Sample: ${discountMatches[0]}`);
+                }
+
+                // Check price
+                const priceMatches = html.match(/data-price-final="[^"]*"/g);
+                debugLog.push(`[Steam] Found ${priceMatches?.length || 0} data-price-final attributes`);
+
+                // Try to find them together - maybe they're not adjacent
+                const fullMatches = html.match(/data-discount="(\d+)"[\s\S]*?data-price-final="(\d+)"/g);
+                debugLog.push(`[Steam] Found ${fullMatches?.length || 0} combined matches with [\s\S]*?`);
+
+                // Just count for now
+                let gameCount = 0;
+                let foundMatches = 0;
+
+                // Look for discount blocks
+                const discountRegex = /data-discount="(\d+)"/g;
+                let match;
+                while ((match = discountRegex.exec(html)) !== null) {
+                    foundMatches++;
+
+                    // Find nearest price
+                    const searchAfter = html.substring(match.index, match.index + 500);
+                    const priceInAfter = searchAfter.match(/data-price-final="(\d+)"/);
+                    if (priceInAfter) {
+                        gameCount++;
+                    }
+                }
+
+                debugLog.push(`[Steam] Page ${page}: ${foundMatches} discount lines, ${gameCount} with prices`);
+
+                if (page === 0) {
+                    // Save sample HTML for inspection
+                    fs.writeFileSync('./steam-sample.html', html.substring(0, 5000));
+                }
+
+                if (gameCount === 0) break;
+            } catch (e) {
+                debugLog.push(`[Steam] Error page ${page}: ${e.message}`);
+                break;
+            }
+        }
+
+        fs.writeFileSync('./steam-debug.log', debugLog.join('\n'));
     } catch (err) {
-        console.error('Error fetching data from Steam: ', err.message);
-        return [];
+        const debugLog = [`[Steam] Fatal: ${err.message}`];
+        fs.writeFileSync('./steam-debug.log', debugLog.join('\n'));
     }
+
+    return games;
 }
 
 // Function to get deals from GOG
 async function getGogDeals() {
     try {
-        const response = await axios.get('https://catalog.gog.com/v1/catalog?order=desc:discount&page=1&price=discounted');
-        const products = response.data.products || [];
+        const games = [];
+        let page = 1;
+        let hasMore = true;
 
-        return products.map(item => {
-            const base = parseMoney(item.price?.basePrice);
-            const final = parseMoney(item.price?.finalPrice);
-            const gameID = item.id || item.slug;
+        while (hasMore && page <= 10) {
+            const response = await axios.get(`https://catalog.gog.com/v1/catalog?order=desc:discount&page=${page}&price=discounted&limit=50`);
+            const products = response.data.products || [];
 
-            if (!item.title || !item.slug || !gameID || base === null || final === null) return null;
+            if (!products || products.length === 0) {
+                hasMore = false;
+                break;
+            }
 
-            return {
-                title: item.title,
-                storeID: 'gog',
-                storeName: 'GOG',
-                salePrice: final,
-                normalPrice: base,
-                saving: calculateSaving(base, final),
-                GameID: `gog-${gameID}`,
-                dealID: `gog-${gameID}`,
-                thumb: item.coverHorizontal || item.coverVertical,
-                url: `https://www.gog.com/game/${item.slug}`
-            };
-        }).filter(Boolean);
+            products.forEach(item => {
+                let base = null;
+                let final = null;
+
+                if (item.price) {
+                    base = parseMoney(item.price?.base || item.price?.basePrice);
+                    final = parseMoney(item.price?.final || item.price?.finalPrice);
+                }
+
+                const gameID = item.id || item.slug;
+
+                if (item.title && item.slug && gameID && base !== null && final !== null && final < base) {
+                    games.push({
+                        title: item.title,
+                        storeID: 'gog',
+                        storeName: 'GOG',
+                        salePrice: final,
+                        normalPrice: base,
+                        saving: calculateSaving(base, final),
+                        GameID: `gog-${gameID}`,
+                        dealID: `gog-${gameID}`,
+                        thumb: item.coverHorizontal || item.coverVertical,
+                        url: `https://www.gog.com/game/${item.slug}`
+                    });
+                }
+            });
+
+            page++;
+        }
+
+        return games;
     } catch (err) {
         console.error('Error fetching data from GOG: ', err.message);
         return [];
@@ -149,34 +221,60 @@ async function getGogDeals() {
 // Function to get deals from Epic Games Store
 async function getEpicDeals(){
     try{
-        const res = await axios.get('https://store-site-backend-static.ak.epicgames.com/freeGamesPromotions?locale=en-US&country=US&allowCountries=US');
-        const elements = res.data.data.Catalog.searchStore.elements || [];
+        const games = [];
 
-        return elements
-            .map(item => {
-                const base = parseCentPrice(item.price?.totalPrice?.originalPrice);
-                const discount = parseCentPrice(item.price?.totalPrice?.discountPrice);
-                const pageSlug = item.catalogNs?.mappings?.[0]?.pageSlug || item.productSlug || item.id;
+        // Try multiple Epic endpoints
+        const endpoints = [
+            'https://store-site-backend-static.ak.epicgames.com/freeGamesPromotions?locale=en-US&country=US&allowCountries=US',
+            'https://store-site-backend-static.ak.epicgames.com/freeGamesPromotions?locale=en-US',
+        ];
 
-                if (!item.title || !pageSlug || base === null || discount === null || discount >= base) return null;
+        for (const url of endpoints) {
+            try {
+                const res = await axios.get(url, {
+                    headers: {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                    }
+                });
+                const elements = res.data.data?.Catalog?.searchStore?.elements || [];
 
-                const image = (item.keyImages || []).find(img => img.type === 'Thumbnail' || img.type === 'DieselStoreFrontWide')?.url || '';
-                const gameID = item.productSlug || item.id || item.title;
+                elements.forEach(item => {
+                    const base = parseCentPrice(item.price?.totalPrice?.originalPrice);
+                    const discount = parseCentPrice(item.price?.totalPrice?.discountPrice);
+                    const pageSlug = item.catalogNs?.mappings?.[0]?.pageSlug || item.productSlug || item.id;
 
-                return {
-                    title: item.title,
-                    storeID: 'epic',
-                    storeName: 'Epic Games',
-                    salePrice: discount,
-                    normalPrice: base,
-                    saving: calculateSaving(base, discount),
-                    GameID: `epic-${gameID}`,
-                    dealID: `epic-${gameID}`,
-                    thumb: image,
-                    url: `https://store.epicgames.com/en-US/p/${pageSlug}`
-                };
-            })
-            .filter(Boolean);
+                    if (item.title && pageSlug && base !== null && discount !== null) {
+                        const gameUrl = `https://store.epicgames.com/en-US/p/${pageSlug}`;
+                        const existingGame = games.find(g => g.url === gameUrl);
+
+                        if (!existingGame) {
+                            const image = (item.keyImages || []).find(img => img.type === 'Thumbnail' || img.type === 'DieselStoreFrontWide')?.url || '';
+                            const gameID = item.productSlug || item.id || item.title;
+                            const saving = calculateSaving(base, discount);
+
+                            if (saving > 0) {
+                                games.push({
+                                    title: item.title,
+                                    storeID: 'epic',
+                                    storeName: 'Epic Games',
+                                    salePrice: discount,
+                                    normalPrice: base,
+                                    saving: saving,
+                                    GameID: `epic-${gameID}`,
+                                    dealID: `epic-${gameID}`,
+                                    thumb: image,
+                                    url: gameUrl
+                                });
+                            }
+                        }
+                    }
+                });
+            } catch (e) {
+                console.warn(`Failed to fetch from Epic endpoint: ${e.message}`);
+            }
+        }
+
+        return games;
     } catch(err){
         console.error('Error fetching data from Epic Games Store: ', err.message);
         return [];
@@ -211,7 +309,7 @@ async function fetchAndSaveGames(req, res) {
         for(let game of validGames) {
             try {
                 await Game.findOneAndUpdate(
-                    {url: game.url}, 
+                    {url: game.url},
                     game,
                     { upsert: true, returnDocument: 'after', runValidators: true}
                 );
@@ -255,10 +353,42 @@ app.get('/api/fetch-now', async (req, res) => {
     await fetchAndSaveGames(req, res);
 });
 
-// API route to get all games
+// API route to get all games with filters
 app.get('/api/games', async (req,res) => {
     try {
-        const games = await Game.find().sort({ saving: -1 });
+        let query = {};
+
+        // Filter by store
+        if (req.query.store) {
+            const stores = req.query.store.split(',').map(s => s.trim().toLowerCase());
+            const storeMap = {
+                'steam': 'Steam',
+                'gog': 'GOG',
+                'epic': 'Epic Games'
+            };
+            const validStores = stores.map(s => storeMap[s]).filter(Boolean);
+            if (validStores.length > 0) {
+                query.storeName = { $in: validStores };
+            }
+        }
+
+        // Filter by price range
+        if (req.query.minPrice || req.query.maxPrice) {
+            query.salePrice = {};
+            if (req.query.minPrice) {
+                query.salePrice.$gte = parseFloat(req.query.minPrice);
+            }
+            if (req.query.maxPrice) {
+                query.salePrice.$lte = parseFloat(req.query.maxPrice);
+            }
+        }
+
+        // Filter by discount percentage
+        if (req.query.minDiscount) {
+            query.saving = { $gte: parseInt(req.query.minDiscount) };
+        }
+
+        const games = await Game.find(query).sort({ saving: -1 });
         res.json(games);
     } catch(err) {
         console.error('Error fetching games from DB: ', err);
