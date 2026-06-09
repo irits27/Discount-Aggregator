@@ -8,6 +8,7 @@ const axios = require('axios');
 const Game = require('./models/Game');
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+const cron = require('node-cron');
 
 // Инициализируем плагин скрытности один раз в самом верху файла
 puppeteer.use(StealthPlugin());
@@ -393,6 +394,17 @@ async function fetchAndSaveGames(req, res) {
         }
     }
 }
+
+//Automatic fetch every 3 hours
+cron.schedule('0 */2 * * *', async () => {
+    console.log(`⏰ [${new Date().toLocaleTimeString()}] Запуск фонового обновления базы данных...`);
+    try {
+        await fetchAndSaveGames(); 
+        console.log('Автоматическое обновление успешно завершено.');
+    } catch (err) {
+        console.error(' Ошибка при автоматическом обновлении:', err.message);
+    }
+});
 
 // Routes
 app.get('/', (req, res) => {
