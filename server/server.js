@@ -79,16 +79,16 @@ function isValidGameDeal(game) {
 
 // 1. STEAM DEALS
 async function getSteamDeals() {
-    const games = [];
     try {
-        for (let page = 0; page < 3; page++) {
+        const fetchPage = async (page) => {
+            const pageGames = [];
             try {
                 const url = `https://store.steampowered.com/search/results/?query=&start=${page * 50}&count=50&specials=1&infinite=1&json=1`;
                 const response = await axios.get(url, {
                     headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
                     timeout: 20000
                 });
-                if (!response.data || !response.data.results_html) break;
+                if (!response.data || !response.data.results_html) return pageGames;
 
                 const html = response.data.results_html;
                 const rowRegex = /<a[^>]+class="[^"]*search_result_row[^"]*"[^>]*>([\s\S]*?)<\/a>/g;
@@ -113,7 +113,7 @@ async function getSteamDeals() {
                         const normalPrice = discountPercent < 100 ? roundPrice(salePrice / (1 - discountPercent / 100)) : salePrice;
                         const gameID = appidMatch[1];
 
-                        games.push({
+                        pageGames.push({
                             title: titleMatch[1].trim(),
                             storeID: 'steam',
                             storeName: 'Steam',
@@ -127,49 +127,56 @@ async function getSteamDeals() {
                         });
                     }
                 }
-            } catch (e) { break; }
-        }
-    } catch (err) {}
-    return games;
+            } catch (e) {}
+            return pageGames;
+        };
+
+        const results = await Promise.all([0, 1, 2].map(fetchPage));
+        return results.flat();
+    } catch (err) {
+        return [];
+    }
 }
 
 // 2. GOG DEALS
 async function getGogDeals() {
     try {
-        const games = [];
-        let page = 1;
-        while (page <= 3) { 
-            const response = await axios.get(`https://catalog.gog.com/v1/catalog?order=desc:discount&page=${page}&price=discounted&limit=50`);
-            const products = response.data.products || [];
-            if (products.length === 0) break;
+        const fetchPage = async (page) => {
+            const pageGames = [];
+            try {
+                const response = await axios.get(`https://catalog.gog.com/v1/catalog?order=desc:discount&page=${page}&price=discounted&limit=50`);
+                const products = response.data.products || [];
+                
+                products.forEach(item => {
+                    let base = item.price ? parseMoney(item.price.base || item.price.basePrice) : null;
+                    let final = item.price ? parseMoney(item.price.final || item.price.finalPrice) : null;
+                    const gameID = item.id || item.slug;
 
-            products.forEach(item => {
-                let base = item.price ? parseMoney(item.price.base || item.price.basePrice) : null;
-                let final = item.price ? parseMoney(item.price.final || item.price.finalPrice) : null;
-                const gameID = item.id || item.slug;
+                    if (item.title && item.slug && gameID && base && final && final < base) {
+                        let img = item.coverHorizontal || item.coverVertical || '';
+                        if (img.startsWith('//')) img = 'https:' + img;
+                        else if (img.startsWith('http://')) img = img.replace('http://', 'https://');
 
-                if (item.title && item.slug && gameID && base && final && final < base) {
-                    let img = item.coverHorizontal || item.coverVertical || '';
-                    if (img.startsWith('//')) img = 'https:' + img;
-                    else if (img.startsWith('http://')) img = img.replace('http://', 'https://');
+                        pageGames.push({
+                            title: item.title,
+                            storeID: 'gog',
+                            storeName: 'GOG',
+                            salePrice: final,
+                            normalPrice: base,
+                            saving: calculateSaving(base, final, item.discount),
+                            GameID: `gog-${gameID}`,
+                            dealID: `gog-${gameID}`,
+                            thumb: img,
+                            url: `https://www.gog.com/game/${item.slug}`
+                        });
+                    }
+                });
+            } catch (e) {}
+            return pageGames;
+        };
 
-                    games.push({
-                        title: item.title,
-                        storeID: 'gog',
-                        storeName: 'GOG',
-                        salePrice: final,
-                        normalPrice: base,
-                        saving: calculateSaving(base, final, item.discount),
-                        GameID: `gog-${gameID}`,
-                        dealID: `gog-${gameID}`,
-                        thumb: img,
-                        url: `https://www.gog.com/game/${item.slug}`
-                    });
-                }
-            });
-            page++;
-        }
-        return games;
+        const results = await Promise.all([1, 2, 3].map(fetchPage));
+        return results.flat();
     } catch (err) { 
         console.error('Error fetching GOG deals: ', err.message);
         return []; 
@@ -231,20 +238,14 @@ async function getEpicDeals() {
             });
 
             try {
-                const resAAA = await fetch(url, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(createPayload('currentPrice'))
-                });
-                const jsonAAA = await resAAA.json();
+                const [resAAA, resFresh] = await Promise.all([
+                    fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(createPayload('currentPrice')) }),
+                    fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(createPayload('releaseDate')) })
+                ]);
+                
+                const [jsonAAA, jsonFresh] = await Promise.all([resAAA.json(), resFresh.json()]);
+                
                 const itemsAAA = jsonAAA?.data?.Catalog?.searchStore?.elements || [];
-
-                const resFresh = await fetch(url, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(createPayload('releaseDate'))
-                });
-                const jsonFresh = await resFresh.json();
                 const itemsFresh = jsonFresh?.data?.Catalog?.searchStore?.elements || [];
 
                 const allItems = [...itemsAAA, ...itemsFresh];
@@ -362,17 +363,22 @@ async function fetchAndSaveGames(req, res) {
         }
 
         let savedCount = 0;
-        for (let game of validGames) {
-            try {
-                await Game.findOneAndUpdate(
-                    { url: game.url },
-                    game,
-                    { upsert: true, returnDocument: 'after', runValidators: true }
-                );
-                savedCount++;
-            } catch (dbErr) {
-                console.error(`Failed to save game "${game.title}" to DB: `, dbErr.message);
-            }
+        const batchSize = 50;
+        
+        for (let i = 0; i < validGames.length; i += batchSize) {
+            const batch = validGames.slice(i, i + batchSize);
+            await Promise.all(batch.map(async (game) => {
+                try {
+                    await Game.findOneAndUpdate(
+                        { url: game.url },
+                        game,
+                        { upsert: true, returnDocument: 'after', runValidators: true }
+                    );
+                    savedCount++;
+                } catch (dbErr) {
+                    console.error(`Failed to save game "${game.title}" to DB: `, dbErr.message);
+                }
+            }));
         }
 
         console.log(`✅ Обработано и сохранено в БД: ${savedCount}`);

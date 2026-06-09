@@ -1,12 +1,44 @@
-import { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback, memo } from 'react';
 import axios from 'axios';
 import './App.css';
 
 const API_URL = 'http://localhost:5000/api';
 const fallbackSvg = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 460 215'><defs><linearGradient id='grad' x1='0' y1='0' x2='1' y2='1'><stop offset='0%25' stop-color='%23b000ff'/><stop offset='100%25' stop-color='%2300fff0'/></linearGradient></defs><rect width='100%25' height='100%25' fill='%23161820'/><path d='M230 40 L380 160 L230 130 L80 160 Z' fill='url(%23grad)' opacity='0.2'/><path d='M230 65 L340 150 L230 120 L120 150 Z' fill='url(%23grad)' opacity='0.4'/><g><circle cx='230' cy='107' r='20' fill='none' stroke='url(%23grad)' stroke-width='4' opacity='0.8'/><animateTransform attributeName='transform' type='rotate' from='0 230 107' to='360 230 107' dur='4s' repeatCount='indefinite'/></g></svg>";
 
-// === Компонент космического фона ===
-function ParticleBackground() {
+const getValidImage = (game) => {
+    let currentImg = game.thumb ? game.thumb : fallbackSvg;
+    if (currentImg.includes('steam')) {
+        const match = currentImg.match(/(?:apps|capsules|steamcommunity.*?\/)\/([0-9]+)/) || currentImg.match(/\/([0-9]+)\//);
+        if (match && match[1]) currentImg = `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${match[1]}/header.jpg`;
+    }
+    return currentImg;
+};
+
+const handleSparks = (e) => {
+    if (e.target.tagName.toLowerCase() === 'input') return;
+    const btn = e.currentTarget;
+    const colors = ['#00fff0', '#b000ff', '#ffffff', '#00bfff'];
+    const particleCount = Math.floor(Math.random() * 5) + 8;
+
+    for (let i = 0; i < particleCount; i++) {
+        const spark = document.createElement('div');
+        spark.classList.add('spark');
+        spark.style.background = colors[Math.floor(Math.random() * colors.length)];
+        spark.style.boxShadow = `0 0 10px ${spark.style.background}`;
+
+        const angle = Math.random() * Math.PI * 2;
+        const distance = 30 + Math.random() * 50; 
+        const tx = Math.cos(angle) * distance;
+        const ty = Math.sin(angle) * distance;
+        
+        spark.style.setProperty('--tx', `${tx}px`);
+        spark.style.setProperty('--ty', `${ty}px`);
+        btn.appendChild(spark);
+        setTimeout(() => spark.remove(), 600);
+    }
+};
+
+const ParticleBackground = memo(function ParticleBackground() {
     const canvasRef = useRef(null);
 
     useEffect(() => {
@@ -26,12 +58,18 @@ function ParticleBackground() {
                 this.color = colors[Math.floor(Math.random() * colors.length)];
             }
             update() {
-                this.x += this.speedX; this.y += this.speedY;
-                if (this.x < 0) this.x = canvas.width; if (this.x > canvas.width) this.x = 0;
-                if (this.y < 0) this.y = canvas.height; if (this.y > canvas.height) this.y = 0;
+                this.x += this.speedX; 
+                this.y += this.speedY;
+                if (this.x < 0) this.x = canvas.width; 
+                if (this.x > canvas.width) this.x = 0;
+                if (this.y < 0) this.y = canvas.height; 
+                if (this.y > canvas.height) this.y = 0;
             }
             draw() {
-                ctx.fillStyle = this.color; ctx.beginPath(); ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2); ctx.fill();
+                ctx.fillStyle = this.color; 
+                ctx.beginPath(); 
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2); 
+                ctx.fill();
             }
         }
 
@@ -40,12 +78,17 @@ function ParticleBackground() {
             canvas.height = window.innerHeight;
             particlesArray = [];
             let numberOfParticles = (canvas.width * canvas.height) / 7000; 
-            for (let i = 0; i < numberOfParticles; i++) { particlesArray.push(new Particle()); }
+            for (let i = 0; i < numberOfParticles; i++) { 
+                particlesArray.push(new Particle()); 
+            }
         }
 
         function animateParticles() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            for (let i = 0; i < particlesArray.length; i++) { particlesArray[i].update(); particlesArray[i].draw(); }
+            for (let i = 0; i < particlesArray.length; i++) { 
+                particlesArray[i].update(); 
+                particlesArray[i].draw(); 
+            }
             animationFrameId = requestAnimationFrame(animateParticles);
         }
 
@@ -60,20 +103,17 @@ function ParticleBackground() {
     }, []);
 
     return <canvas ref={canvasRef} id="canvas-bg"></canvas>;
-}
+});
 
-// === Главный компонент приложения ===
 function App() {
     const [games, setGames] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
-    
-    // Фильтры
     const [stores, setStores] = useState({ steam: true, epic: true, gog: true });
     const [minPrice, setMinPrice] = useState('');
     const [maxPrice, setMaxPrice] = useState('');
     const [minDiscount, setMinDiscount] = useState(0);
 
-    const fetchGames = async () => {
+    const fetchGames = useCallback(async () => {
         setIsLoading(true);
         try {
             const checkedStores = Object.keys(stores).filter(key => stores[key]).join(',');
@@ -86,10 +126,7 @@ function App() {
             const res = await axios.get(`${API_URL}/games?${params.toString()}`);
             let data = res.data || [];
             
-            data.sort((a, b) => {
-                if (b.normalPrice !== a.normalPrice) return b.normalPrice - a.normalPrice;
-                return b.saving - a.saving;
-            });
+            data.sort((a, b) => b.normalPrice !== a.normalPrice ? b.normalPrice - a.normalPrice : b.saving - a.saving);
 
             setGames(data);
         } catch (err) {
@@ -97,41 +134,15 @@ function App() {
         } finally {
             setTimeout(() => setIsLoading(false), 300);
         }
-    };
+    }, [stores, minPrice, maxPrice, minDiscount]);
 
-    // Эффект авто-обновления + ПЛАВНЫЙ СКРОЛЛ НАВЕРХ при изменении критериев
     useEffect(() => {
         const timeoutId = setTimeout(() => {
             fetchGames();
             window.scrollTo({ top: 0, behavior: 'smooth' });
         }, 400);
         return () => clearTimeout(timeoutId);
-    }, [stores, minPrice, maxPrice, minDiscount]);
-
-    // Генератор искр при клике
-    const handleSparks = (e) => {
-        if (e.target.tagName.toLowerCase() === 'input') return;
-        const btn = e.currentTarget;
-        const colors = ['#00fff0', '#b000ff', '#ffffff', '#00bfff'];
-        const particleCount = Math.floor(Math.random() * 5) + 8;
-
-        for (let i = 0; i < particleCount; i++) {
-            const spark = document.createElement('div');
-            spark.classList.add('spark');
-            spark.style.background = colors[Math.floor(Math.random() * colors.length)];
-            spark.style.boxShadow = `0 0 10px ${spark.style.background}`;
-
-            const angle = Math.random() * Math.PI * 2;
-            const distance = 30 + Math.random() * 50; 
-            const tx = Math.cos(angle) * distance;
-            const ty = Math.sin(angle) * distance;
-            
-            spark.style.setProperty('--tx', `${tx}px`);
-            spark.style.setProperty('--ty', `${ty}px`);
-            btn.appendChild(spark);
-            setTimeout(() => spark.remove(), 600);
-        }
-    };
+    }, [fetchGames]);
 
     const handleClearDB = async () => {
         if(window.confirm('Очистить БД?')) { 
@@ -154,15 +165,6 @@ function App() {
             alert('Ошибка парсинга!'); 
             setIsLoading(false);
         }
-    };
-
-    const getValidImage = (game) => {
-        let currentImg = game.thumb ? game.thumb : fallbackSvg;
-        if (currentImg.includes('steam')) {
-            const match = currentImg.match(/(?:apps|capsules|steamcommunity.*?\/)\/([0-9]+)/) || currentImg.match(/\/([0-9]+)\//);
-            if (match && match[1]) currentImg = `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${match[1]}/header.jpg`;
-        }
-        return currentImg;
     };
 
     return (
