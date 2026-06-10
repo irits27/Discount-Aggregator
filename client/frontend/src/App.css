@@ -116,6 +116,54 @@ h1 {
     gap: 15px;
 }
 
+/* СТИЛИЗАЦИЯ СЕЛЕКТОРА ВАЛЮТ */
+.currency-select-wrapper {
+    position: relative;
+    display: inline-block;
+}
+
+.currency-select {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background: var(--glass-bg);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid var(--glass-border);
+    color: var(--text);
+    padding: 10px 35px 10px 15px;
+    font-size: 14px;
+    font-weight: bold;
+    border-radius: 8px;
+    cursor: pointer;
+    outline: none;
+    transition: all 0.3s ease;
+}
+
+.currency-select:hover, .currency-select:focus {
+    border-color: var(--accent-cyan);
+    box-shadow: 0 0 15px rgba(0, 255, 240, 0.25);
+    background: rgba(30, 34, 45, 0.8);
+}
+
+.currency-select-wrapper::after {
+    content: "▼";
+    font-size: 10px;
+    color: var(--accent-cyan);
+    text-shadow: 0 0 5px var(--accent-cyan);
+    position: absolute;
+    right: 15px;
+    top: 50%;
+    transform: translateY(-50%);
+    pointer-events: none;
+    transition: 0.3s;
+}
+
+.currency-select option {
+    background: #161820;
+    color: var(--text);
+}
+
 .btn-action { 
     background: linear-gradient(45deg, var(--accent-purple), var(--accent-cyan)); 
     border: none; 
@@ -336,7 +384,7 @@ input[type="range"] {
     visibility: visible; 
 }
 
-/* Твоя любимая сетка */
+/* Сетка */
 .games-grid { 
     display: grid; 
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); 

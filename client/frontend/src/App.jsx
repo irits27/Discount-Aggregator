@@ -5,13 +5,27 @@ import './App.css';
 const API_URL = 'http://localhost:5000/api';
 const fallbackSvg = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 460 215'><defs><linearGradient id='grad' x1='0' y1='0' x2='1' y2='1'><stop offset='0%25' stop-color='%23b000ff'/><stop offset='100%25' stop-color='%2300fff0'/></linearGradient></defs><rect width='100%25' height='100%25' fill='%23161820'/><path d='M230 40 L380 160 L230 130 L80 160 Z' fill='url(%23grad)' opacity='0.2'/><path d='M230 65 L340 150 L230 120 L120 150 Z' fill='url(%23grad)' opacity='0.4'/><g><circle cx='230' cy='107' r='20' fill='none' stroke='url(%23grad)' stroke-width='4' opacity='0.8'/><animateTransform attributeName='transform' type='rotate' from='0 230 107' to='360 230 107' dur='4s' repeatCount='indefinite'/></g></svg>";
 
+const CURRENCIES = {
+    USD: { symbol: '$' },
+    EUR: { symbol: '€' },
+    UAH: { symbol: '₴' }
+};
+
+const steamImgRegex1 = /(?:apps|capsules|steamcommunity.*?\/)\/([0-9]+)/;
+const steamImgRegex2 = /\/([0-9]+)\//;
+
 const getValidImage = (game) => {
     let currentImg = game.thumb ? game.thumb : fallbackSvg;
     if (currentImg.includes('steam')) {
-        const match = currentImg.match(/(?:apps|capsules|steamcommunity.*?\/)\/([0-9]+)/) || currentImg.match(/\/([0-9]+)\//);
+        const match = currentImg.match(steamImgRegex1) || currentImg.match(steamImgRegex2);
         if (match && match[1]) currentImg = `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${match[1]}/header.jpg`;
     }
     return currentImg;
+};
+
+const formatPrice = (priceValue, currency) => {
+    if (priceValue === undefined || priceValue === null) return 'N/A';
+    return currency === 'UAH' ? Math.round(priceValue) : priceValue.toFixed(2);
 };
 
 const handleSparks = (e) => {
@@ -105,6 +119,41 @@ const ParticleBackground = memo(function ParticleBackground() {
     return <canvas ref={canvasRef} id="canvas-bg"></canvas>;
 });
 
+const GameCard = memo(({ game, currency, index }) => {
+    const currentRegionPrices = game.prices?.[currency];
+    if (!currentRegionPrices) return null;
+
+    const delay = Math.min(index * 40, 1000);
+
+    return (
+        <div className="game-card" style={{animationDelay: `${delay}ms`}}>
+            <div className="game-thumb-wrapper">
+                <img 
+                    className="game-thumb" 
+                    src={getValidImage(game)} 
+                    alt={game.title} 
+                    referrerPolicy="no-referrer" 
+                    onError={(e) => { e.target.onerror = null; e.target.src = fallbackSvg; }} 
+                />
+                <span className={`store-badge badge-${game.storeID}`}>{game.storeName}</span>
+            </div>
+            <div className="game-info">
+                <h2 className="game-title">{game.title}</h2>
+                <div className="price-row">
+                    <span className="discount-tag">-{currentRegionPrices.saving}%</span>
+                    <span className="sale-price">
+                        {CURRENCIES[currency].symbol}{formatPrice(currentRegionPrices.sale, currency)}
+                    </span>
+                    <span className="old-price">
+                        {CURRENCIES[currency].symbol}{formatPrice(currentRegionPrices.normal, currency)}
+                    </span>
+                </div>
+                <a href={game.url} target="_blank" rel="noopener noreferrer" className="buy-btn">В магазин</a>
+            </div>
+        </div>
+    );
+});
+
 function App() {
     const [games, setGames] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
@@ -112,21 +161,32 @@ function App() {
     const [minPrice, setMinPrice] = useState('');
     const [maxPrice, setMaxPrice] = useState('');
     const [minDiscount, setMinDiscount] = useState(0);
+    const [currency, setCurrency] = useState('USD');
+
+    const scrollToTop = () => window.scrollTo({ top: 0, behavior: 'smooth' });
 
     const fetchGames = useCallback(async () => {
         setIsLoading(true);
         try {
             const checkedStores = Object.keys(stores).filter(key => stores[key]).join(',');
             const params = new URLSearchParams();
+            
             if (checkedStores) params.append('store', checkedStores);
+            if (minDiscount > 0) params.append('minDiscount', minDiscount);
+            params.append('currency', currency);
             if (minPrice) params.append('minPrice', minPrice);
             if (maxPrice) params.append('maxPrice', maxPrice);
-            if (minDiscount > 0) params.append('minDiscount', minDiscount);
 
             const res = await axios.get(`${API_URL}/games?${params.toString()}`);
             let data = res.data || [];
             
-            data.sort((a, b) => b.normalPrice !== a.normalPrice ? b.normalPrice - a.normalPrice : b.saving - a.saving);
+            data.sort((a, b) => {
+                const priceA = a.prices?.[currency]?.normal || 0;
+                const priceB = b.prices?.[currency]?.normal || 0;
+                const saveA = a.prices?.[currency]?.saving || 0;
+                const saveB = b.prices?.[currency]?.saving || 0;
+                return priceB !== priceA ? priceB - priceA : saveB - saveA;
+            });
 
             setGames(data);
         } catch (err) {
@@ -134,12 +194,11 @@ function App() {
         } finally {
             setTimeout(() => setIsLoading(false), 300);
         }
-    }, [stores, minPrice, maxPrice, minDiscount]);
+    }, [stores, minPrice, maxPrice, minDiscount, currency]);
 
     useEffect(() => {
         const timeoutId = setTimeout(() => {
             fetchGames();
-            window.scrollTo({ top: 0, behavior: 'smooth' });
         }, 400);
         return () => clearTimeout(timeoutId);
     }, [fetchGames]);
@@ -148,7 +207,7 @@ function App() {
         if(window.confirm('Очистить БД?')) { 
             setIsLoading(true);
             try {
-                await axios.get(`${API_URL}/clear-database`); 
+                await axios.post(`${API_URL}/clear-database`); 
                 fetchGames();
             } catch (err) {
                 alert('Ошибка очистки');
@@ -159,8 +218,9 @@ function App() {
     const handleFetchNewDeals = async () => {
         setIsLoading(true);
         try { 
-            await axios.get(`${API_URL}/fetch-now`); 
+            await axios.post(`${API_URL}/fetch-now`); 
             fetchGames();
+            scrollToTop(); 
         } catch(e) { 
             alert('Ошибка парсинга!'); 
             setIsLoading(false);
@@ -181,6 +241,23 @@ function App() {
                     <h1>Nebula Deals</h1>
                 </div>
                 <div className="header-buttons">
+                    <div className="currency-select-wrapper">
+                        <select 
+                            className="currency-select" 
+                            value={currency} 
+                            onChange={(e) => {
+                                setCurrency(e.target.value);
+                                setMinPrice('');
+                                setMaxPrice('');
+                                scrollToTop();
+                            }}
+                        >
+                            <option value="USD">USD ($)</option>
+                            <option value="EUR">EUR (€)</option>
+                            <option value="UAH">UAH (₴)</option>
+                        </select>
+                    </div>
+
                     <button className="btn-action" onClick={handleClearDB} style={{background: 'linear-gradient(45deg, #ff0055, #ff4400)'}}>
                         Очистить БД
                     </button>
@@ -196,28 +273,37 @@ function App() {
                         <h3>Магазины</h3>
                         <div className="filter-buttons-wrapper">
                             <label className="filter-btn" onClick={handleSparks}>
-                                <input type="checkbox" className="store-checkbox" checked={stores.steam} onChange={() => setStores(s => ({...s, steam: !s.steam}))} />
+                                <input type="checkbox" className="store-checkbox" checked={stores.steam} onChange={() => {
+                                    setStores(s => ({...s, steam: !s.steam}));
+                                    scrollToTop();
+                                }} />
                                 <span><div className="status-dot"></div> Steam</span>
                             </label>
                             <label className="filter-btn" onClick={handleSparks}>
-                                <input type="checkbox" className="store-checkbox" checked={stores.epic} onChange={() => setStores(s => ({...s, epic: !s.epic}))} />
+                                <input type="checkbox" className="store-checkbox" checked={stores.epic} onChange={() => {
+                                    setStores(s => ({...s, epic: !s.epic}));
+                                    scrollToTop();
+                                }} />
                                 <span><div className="status-dot"></div> Epic Games</span>
                             </label>
                             <label className="filter-btn" onClick={handleSparks}>
-                                <input type="checkbox" className="store-checkbox" checked={stores.gog} onChange={() => setStores(s => ({...s, gog: !s.gog}))} />
+                                <input type="checkbox" className="store-checkbox" checked={stores.gog} onChange={() => {
+                                    setStores(s => ({...s, gog: !s.gog}));
+                                    scrollToTop();
+                                }} />
                                 <span><div className="status-dot"></div> GOG</span>
                             </label>
                         </div>
                     </div>
                     <div className="filter-group">
-                        <h3>Цена ($)</h3>
+                        <h3>Цена ({CURRENCIES[currency].symbol})</h3>
                         <div className="price-inputs">
                             <div className="input-wrapper">
-                                <span className="currency">$</span>
+                                <span className="currency">{CURRENCIES[currency].symbol}</span>
                                 <input type="number" placeholder="Мин" value={minPrice} onChange={e => setMinPrice(e.target.value)} />
                             </div>
                             <div className="input-wrapper">
-                                <span className="currency">$</span>
+                                <span className="currency">{CURRENCIES[currency].symbol}</span>
                                 <input type="number" placeholder="Макс" value={maxPrice} onChange={e => setMaxPrice(e.target.value)} />
                             </div>
                         </div>
@@ -225,7 +311,13 @@ function App() {
                     <div className="filter-group">
                         <h3>Минимальная скидка</h3>
                         <label style={{display: 'flex', alignItems: 'center', cursor: 'pointer'}}>
-                            <input type="range" min="0" max="90" step="10" value={minDiscount} onChange={e => setMinDiscount(e.target.value)} />
+                            <input 
+                                type="range" min="0" max="90" step="10" 
+                                value={minDiscount} 
+                                onChange={e => setMinDiscount(e.target.value)} 
+                                onMouseUp={scrollToTop} 
+                                onTouchEnd={scrollToTop} 
+                            />
                             <span style={{marginLeft: '15px', fontWeight: 'bold', color: 'var(--accent-cyan)'}}>{minDiscount}%</span>
                         </label>
                     </div>
@@ -237,26 +329,14 @@ function App() {
                         {games.length === 0 && !isLoading ? (
                             <h2 style={{gridColumn: '1/-1', textAlign: 'center', color: '#888'}}>Игр не найдено 😕</h2>
                         ) : (
-                            games.map((game, index) => {
-                                const delay = Math.min(index * 40, 1000);
-                                return (
-                                    <div className="game-card" style={{animationDelay: `${delay}ms`}} key={game._id || index}>
-                                        <div className="game-thumb-wrapper">
-                                            <img className="game-thumb" src={getValidImage(game)} alt={game.title} referrerPolicy="no-referrer" onError={(e) => { e.target.onerror = null; e.target.src = fallbackSvg; }} />
-                                            <span className={`store-badge badge-${game.storeID}`}>{game.storeName}</span>
-                                        </div>
-                                        <div className="game-info">
-                                            <h2 className="game-title">{game.title}</h2>
-                                            <div className="price-row">
-                                                <span className="discount-tag">-{game.saving}%</span>
-                                                <span className="sale-price">${game.salePrice}</span>
-                                                <span className="old-price">${game.normalPrice}</span>
-                                            </div>
-                                            <a href={game.url} target="_blank" rel="noopener noreferrer" className="buy-btn">В магазин</a>
-                                        </div>
-                                    </div>
-                                );
-                            })
+                            games.map((game, index) => (
+                                <GameCard 
+                                    key={game._id || game.dealID || index} 
+                                    game={game} 
+                                    currency={currency} 
+                                    index={index} 
+                                />
+                            ))
                         )}
                     </main>
                 </div>
