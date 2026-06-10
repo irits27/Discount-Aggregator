@@ -7,14 +7,27 @@ const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const cron = require('node-cron');
 const rateLimit = require('express-rate-limit');
-
+const helmet = require('helmet');
 
 puppeteer.use(StealthPlugin());
 
 const app = express();
 const port = process.env.PORT || 5000;
 
-app.use(cors());
+app.use(helmet({ contentSecurityPolicy: false }));
+
+const allowedOrigins = ['http://localhost:5173', 'http://127.0.0.1:5173', process.env.FRONTEND_URL].filter(Boolean);
+
+app.use(cors({
+    origin: function (origin, callback) {
+        if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+            callback(null, true);
+        } else {
+            callback(new Error('Not allowed by CORS'));
+        }
+    }
+}));
+
 app.use(express.json());
 app.use((req, res, next) => {
     res.setHeader(
@@ -24,7 +37,6 @@ app.use((req, res, next) => {
     next();
 });
 
-// Убедись, что переменная MONGO_URI есть в твоем .env
 mongoose.connect(process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/nebula')
 .then(() => console.log('✅ MongoDB подключена'))
 .catch(err => console.log("❌ Ошибка MongoDB: ", err));
@@ -39,17 +51,17 @@ const gameSchema = new mongoose.Schema({
     dealID: { type: String, unique: true },
     thumb: String,
     url: String,
-    lastUpdated: Number
+    lastUpdated: { type: Date, default: Date.now, expires: '7d' } // Автоудаление через 7 дней
 });
 
 const limiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 минут
-    max: 100, // Лимит: 100 запросов с одного IP
+    windowMs: 15 * 60 * 1000,
+    max: 100,
     message: { error: 'Слишком много запросов с вашего IP, пожалуйста, подождите.' }
 });
 app.use('/api/', limiter);
 
-// ⚡ ОПТИМИЗАЦИЯ: Индексы для сверхбыстрой работы GET /api/games
+// ИНДЕКСЫ ДЛЯ ОПТИМИЗАЦИИ
 gameSchema.index({ title: 1 });
 gameSchema.index({ storeID: 1 });
 gameSchema.index({ 'prices.USD.sale': 1 });
@@ -89,7 +101,7 @@ function isValidGameDeal(game) {
     return Boolean(game && game.title && game.dealID && game.storeID && Object.keys(game.prices).length > 0);
 }
 
-// 1. STEAM DEALS (Мультивалютность)
+// 1. STEAM DEALS
 async function getSteamDeals() {
     const gamesMap = new Map();
     const regions = [ 
@@ -159,7 +171,7 @@ async function getSteamDeals() {
     return Array.from(gamesMap.values());
 }
 
-// 2. GOG DEALS (Мультивалютность)
+// 2. GOG DEALS
 async function getGogDeals() {
     const gamesMap = new Map();
     const regions = ['USD', 'EUR', 'UAH'];
@@ -213,7 +225,7 @@ async function getGogDeals() {
     return Array.from(gamesMap.values());
 }
 
-// 3. EPIC GAMES STORE DEALS (Мультивалютность)
+// 3. EPIC GAMES DEALS
 async function getEpicDeals() {
     const gamesMap = new Map();
     const regions = [ 
@@ -233,30 +245,55 @@ async function getEpicDeals() {
         for (const region of regions) {
             const elements = await page.evaluate(async (reg) => {
                 const url = 'https://store.epicgames.com/graphql';
-                const createPayload = (sortBy) => ({
-                    operationName: "searchStoreQuery",
-                    variables: {
-                        category: "games/edition/base|bundles/games",
-                        count: 100, 
-                        country: reg.country,
-                        locale: reg.locale,
-                        sortBy: sortBy, 
-                        sortDir: "DESC",
-                        withPrice: true
-                    },
-                    query: `query searchStoreQuery($category: String, $count: Int, $country: String!, $locale: String, $sortBy: String, $sortDir: String, $withPrice: Boolean = false) {
-                        Catalog { searchStore(category: $category, count: $count, country: $country, locale: $locale, sortBy: $sortBy, sortDir: $sortDir, onSale: true) { elements { title id productSlug urlSlug offerType catalogNs { mappings { pageSlug } } keyImages { type url } price(country: $country) @include(if: $withPrice) { totalPrice { discountPrice originalPrice } } } } }
-                    }`
-                });
+                
+                const fetchPages = async (sortBy) => {
+                    let start = 0;
+                    const count = 100;
+                    let hasMore = true;
+                    const results = [];
+
+                    while (hasMore) {
+                        const payload = {
+                            operationName: "searchStoreQuery",
+                            variables: {
+                                category: "games/edition/base|bundles/games|games/edition/deluxe|games/edition/ultimate",
+                                count: count,
+                                start: start,
+                                country: reg.country,
+                                locale: reg.locale,
+                                sortBy: sortBy, 
+                                sortDir: "DESC",
+                                withPrice: true
+                            },
+                            query: `query searchStoreQuery($category: String, $count: Int, $start: Int, $country: String!, $locale: String, $sortBy: String, $sortDir: String, $withPrice: Boolean = false) {
+                                Catalog { searchStore(category: $category, count: $count, start: $start, country: $country, locale: $locale, sortBy: $sortBy, sortDir: $sortDir, onSale: true) { elements { title id productSlug urlSlug offerType catalogNs { mappings { pageSlug } } keyImages { type url } price(country: $country) @include(if: $withPrice) { totalPrice { discountPrice originalPrice } } } } }
+                            }`
+                        };
+
+                        try {
+                            const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                            const json = await res.json();
+                            const items = json?.data?.Catalog?.searchStore?.elements || [];
+                            
+                            results.push(...items);
+                            
+                            if (items.length < count || results.length >= 400) {
+                                hasMore = false;
+                            } else {
+                                start += count;
+                            }
+                        } catch (e) {
+                            hasMore = false;
+                        }
+                    }
+                    return results;
+                };
 
                 try {
-                    const [resAAA, resFresh] = await Promise.all([
-                        fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(createPayload('currentPrice')) }),
-                        fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(createPayload('releaseDate')) })
+                    const [itemsAAA, itemsFresh] = await Promise.all([
+                        fetchPages('currentPrice'),
+                        fetchPages('releaseDate')
                     ]);
-                    const [jsonAAA, jsonFresh] = await Promise.all([resAAA.json(), resFresh.json()]);
-                    const itemsAAA = jsonAAA?.data?.Catalog?.searchStore?.elements || [];
-                    const itemsFresh = jsonFresh?.data?.Catalog?.searchStore?.elements || [];
                     const allItems = [...itemsAAA, ...itemsFresh];
                     
                     const uniqueMap = new Map();
@@ -313,8 +350,9 @@ async function getEpicDeals() {
     }
 }
 
-// Сохранение в БД
+// Сохранение в БД + Удаление пропавших скидок
 async function fetchAndSaveGames() {
+    const startTime = Date.now();
     try {
         console.log('🔄 Запуск сбора данных со всех магазинов...');
         const results = await Promise.allSettled([ getSteamDeals(), getGogDeals(), getEpicDeals() ]);
@@ -328,7 +366,6 @@ async function fetchAndSaveGames() {
 
         console.log(`✅ Найдено ${validGames.length} валидных скидок.`);
         
-        // ⚡ ОПТИМИЗАЦИЯ: Массовая запись (bulkWrite) вместо цикла findOneAndUpdate
         if (validGames.length > 0) {
             const bulkOps = validGames.map(game => {
                 const { prices, ...baseData } = game;
@@ -350,6 +387,20 @@ async function fetchAndSaveGames() {
             });
 
             await Game.bulkWrite(bulkOps);
+
+            // ОЧИСТКА: Удаляем игры, которые не были обновлены в этот цикл
+            const processedStores = [];
+            if (results[0].status === 'fulfilled') processedStores.push('steam');
+            if (results[1].status === 'fulfilled') processedStores.push('gog');
+            if (results[2].status === 'fulfilled') processedStores.push('epic');
+
+            if (processedStores.length > 0) {
+                const cleanResult = await Game.deleteMany({
+                    storeID: { $in: processedStores },
+                    lastUpdated: { $lt: startTime }
+                });
+                console.log(`🧹 Очистка: удалено ${cleanResult.deletedCount} игр (скидки закончились).`);
+            }
         }
 
         console.log(`💾 Успешно сохранено/обновлено: ${validGames.length} игр.`);
@@ -360,19 +411,24 @@ async function fetchAndSaveGames() {
 
 // ---------------- REST API ----------------
 
-// 1. Получить игры
+// 1. Получить игры (С пагинацией и сортировкой на уровне БД)
 app.get('/api/games', async (req, res) => {
     try {
-        const { store, minPrice, maxPrice, minDiscount, currency, search } = req.query;
+        const { store, minPrice, maxPrice, minDiscount, currency, search, page = 1, limit = 30 } = req.query;
+
+        if (minPrice && isNaN(Number(minPrice))) return res.status(400).json({ error: 'Invalid minPrice parameter' });
+        if (maxPrice && isNaN(Number(maxPrice))) return res.status(400).json({ error: 'Invalid maxPrice parameter' });
+        if (minDiscount && isNaN(Number(minDiscount))) return res.status(400).json({ error: 'Invalid minDiscount parameter' });
+
         let query = {};
         
         if (store) query.storeID = { $in: store.split(',') };
 
+        // ИЗМЕНЕННЫЙ БЛОК ПОИСКА ПО ПЕРВЫМ БУКВАМ СЛОВ
         if (search && search.trim() !== '') {
-
             const escapedSearch = search.trim().replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-
-            query.title = { $regex: '^' + escapedSearch, $options: 'i' };
+            // (^|\\s) проверяет, что это либо начало названия, либо начало нового слова после пробела
+            query.title = { $regex: '(^|\\s)' + escapedSearch, $options: 'i' };
         }
 
         const cur = currency || 'USD';
@@ -388,8 +444,14 @@ app.get('/api/games', async (req, res) => {
             query[`prices.${cur}.saving`] = { $gte: Number(minDiscount) };
         }
 
-        // Ограничиваем выдачу, чтобы фронт не умирал от тысяч записей
-        const games = await Game.find(query).limit(500); 
+        const skip = (parseInt(page) - 1) * parseInt(limit);
+
+        // ПАГИНАЦИЯ + СОРТИРОВКА В БД (Сначала самые дорогие по базовой цене)
+        const games = await Game.find(query)
+            .sort({ [`prices.${cur}.normal`]: -1, [`prices.${cur}.saving`]: -1 })
+            .skip(skip)
+            .limit(parseInt(limit)); 
+            
         res.json(games);
     } catch (e) {
         console.error("Ошибка при поиске в БД:", e);
@@ -397,35 +459,13 @@ app.get('/api/games', async (req, res) => {
     }
 });
 
-// ==========================================
-// 🛡️ ОПАСНЫЕ РОУТЫ ЗАКОММЕНТИРОВАНЫ ДЛЯ ПРОДАКШЕНА
-// Раскомментируй их только если тестируешь проект локально на своем ПК
-// ==========================================
-
-// // 2. Ручной запуск парсинга
-// app.post('/api/fetch-now', async (req, res) => {
-//     fetchAndSaveGames(); // Запускаем асинхронно
-//     res.json({ message: 'Парсинг запущен в фоновом режиме!' });
-// });
-
-// // 3. Очистка базы
-// app.post('/api/clear-database', async (req, res) => {
-//     try {
-//         await Game.deleteMany({});
-//         res.json({ message: 'База данных очищена!' });
-//     } catch (e) {
-//         res.status(500).json({ error: 'Ошибка очистки' });
-//     }
-// });
-// Авто-обновление раз в 3 часа
 cron.schedule('0 */3 * * *', () => {
     console.log('⏰ Автоматический запуск парсинга...');
     fetchAndSaveGames();
 });
 
-// Запуск сервера
 app.listen(port, () => {
     console.log(`🚀 Сервер запущен на порту ${port}`);
-    // Запуск первого парсинга при старте (расскомментируй, если нужно)
-    // fetchAndSaveGames();
+    // Запускаем парсинг при старте сервера
+    // fetchAndSaveGames(); 
 });

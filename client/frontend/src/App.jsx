@@ -1,8 +1,8 @@
-import React, { useEffect, useState, useRef, useCallback, memo } from 'react';
+import React, { useEffect, useState, useRef, useCallback, memo, useMemo } from 'react';
 import axios from 'axios';
 import './App.css';
 
-const API_URL = 'http://localhost:5000/api';
+const API_URL = `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api`;
 const fallbackSvg = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 460 215'><defs><linearGradient id='grad' x1='0' y1='0' x2='1' y2='1'><stop offset='0%25' stop-color='%23b000ff'/><stop offset='100%25' stop-color='%2300fff0'/></linearGradient></defs><rect width='100%25' height='100%25' fill='%23161820'/><path d='M230 40 L380 160 L230 130 L80 160 Z' fill='url(%23grad)' opacity='0.2'/><path d='M230 65 L340 150 L230 120 L120 150 Z' fill='url(%23grad)' opacity='0.4'/><g><circle cx='230' cy='107' r='20' fill='none' stroke='url(%23grad)' stroke-width='4' opacity='0.8'/><animateTransform attributeName='transform' type='rotate' from='0 230 107' to='360 230 107' dur='4s' repeatCount='indefinite'/></g></svg>";
 
 const CURRENCIES = {
@@ -33,7 +33,6 @@ const handleSparks = (e) => {
     const btn = e.currentTarget;
     const colors = ['#00fff0', '#b000ff', '#ffffff', '#00bfff'];
     const particleCount = Math.floor(Math.random() * 5) + 8;
-
     for (let i = 0; i < particleCount; i++) {
         const spark = document.createElement('div');
         spark.classList.add('spark');
@@ -44,7 +43,6 @@ const handleSparks = (e) => {
         const distance = 30 + Math.random() * 50; 
         const tx = Math.cos(angle) * distance;
         const ty = Math.sin(angle) * distance;
-        
         spark.style.setProperty('--tx', `${tx}px`);
         spark.style.setProperty('--ty', `${ty}px`);
         btn.appendChild(spark);
@@ -80,7 +78,7 @@ const ParticleBackground = memo(function ParticleBackground() {
                 if (this.y > canvas.height) this.y = 0;
             }
             draw() {
-                ctx.fillStyle = this.color; 
+                ctx.fillStyle = this.color;
                 ctx.beginPath(); 
                 ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2); 
                 ctx.fill();
@@ -88,19 +86,19 @@ const ParticleBackground = memo(function ParticleBackground() {
         }
 
         function initCanvas() {
-            canvas.width = window.innerWidth; 
+            canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
             particlesArray = [];
-            let numberOfParticles = (canvas.width * canvas.height) / 7000; 
+            let numberOfParticles = (canvas.width * canvas.height) / 7000;
             for (let i = 0; i < numberOfParticles; i++) { 
-                particlesArray.push(new Particle()); 
+                particlesArray.push(new Particle());
             }
         }
 
         function animateParticles() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             for (let i = 0; i < particlesArray.length; i++) { 
-                particlesArray[i].update(); 
+                particlesArray[i].update();
                 particlesArray[i].draw(); 
             }
             animationFrameId = requestAnimationFrame(animateParticles);
@@ -109,7 +107,6 @@ const ParticleBackground = memo(function ParticleBackground() {
         window.addEventListener('resize', initCanvas);
         initCanvas();
         animateParticles();
-
         return () => {
             window.removeEventListener('resize', initCanvas);
             cancelAnimationFrame(animationFrameId);
@@ -124,13 +121,14 @@ const GameCard = memo(({ game, currency, index }) => {
     if (!currentRegionPrices) return null;
 
     const delay = Math.min(index * 40, 1000);
+    const optimizedImage = useMemo(() => getValidImage(game), [game.thumb, game.storeID]);
 
     return (
         <div className="game-card" style={{animationDelay: `${delay}ms`}}>
             <div className="game-thumb-wrapper">
                 <img 
                     className="game-thumb" 
-                    src={getValidImage(game)} 
+                    src={optimizedImage} 
                     alt={game.title} 
                     referrerPolicy="no-referrer" 
                     onError={(e) => { e.target.onerror = null; e.target.src = fallbackSvg; }} 
@@ -164,72 +162,80 @@ function App() {
     const [currency, setCurrency] = useState('USD');
     const [searchQuery, setSearchQuery] = useState('');
 
+    const [page, setPage] = useState(1);
+    const [hasMore, setHasMore] = useState(true);
+    const observerTarget = useRef(null); 
+
     const scrollToTop = () => window.scrollTo({ top: 0, behavior: 'smooth' });
 
-    const fetchGames = useCallback(async () => {
+    const fetchGames = useCallback(async (currentPage, isReset = false) => {
         setIsLoading(true);
         try {
             const checkedStores = Object.keys(stores).filter(key => stores[key]).join(',');
             const params = new URLSearchParams();
             
             if (searchQuery.trim()) params.append('search', searchQuery);
-
             if (checkedStores) params.append('store', checkedStores);
             if (minDiscount > 0) params.append('minDiscount', minDiscount);
             params.append('currency', currency);
             if (minPrice) params.append('minPrice', minPrice);
             if (maxPrice) params.append('maxPrice', maxPrice);
+            
+            params.append('page', currentPage);
+            params.append('limit', 30);
 
             const res = await axios.get(`${API_URL}/games?${params.toString()}`);
-            let data = res.data || [];
-            
-            data.sort((a, b) => {
-                const priceA = a.prices?.[currency]?.normal || 0;
-                const priceB = b.prices?.[currency]?.normal || 0;
-                const saveA = a.prices?.[currency]?.saving || 0;
-                const saveB = b.prices?.[currency]?.saving || 0;
-                return priceB !== priceA ? priceB - priceA : saveB - saveA;
-            });
+            const data = res.data || [];
 
-            setGames(data);
+            if (data.length < 30) setHasMore(false);
+            else setHasMore(true);
+         
+            if (isReset || currentPage === 1) {
+                setGames(data);
+                window.scrollTo({ top: 0, behavior: 'smooth' }); 
+            } else {
+                setGames(prev => [...prev, ...data]);
+            }
         } catch (err) {
             console.error("Ошибка при загрузке:", err);
         } finally {
             setTimeout(() => setIsLoading(false), 300);
         }
-    // ФИКС 1: Добавили searchQuery в массив зависимостей, чтобы функция обновлялась при вводе
     }, [stores, minPrice, maxPrice, minDiscount, currency, searchQuery]);
 
     useEffect(() => {
+        setPage(1);
+        setHasMore(true);
         const timeoutId = setTimeout(() => {
-            fetchGames();
+            fetchGames(1, true); 
         }, 400);
         return () => clearTimeout(timeoutId);
     }, [fetchGames]);
 
-    const handleClearDB = async () => {
-        if(window.confirm('Очистить БД?')) { 
-            setIsLoading(true);
-            try {
-                await axios.post(`${API_URL}/clear-database`); 
-                fetchGames();
-            } catch (err) {
-                alert('Ошибка очистки');
-            }
+    useEffect(() => {
+        if (page > 1) {
+            fetchGames(page, false); 
         }
-    };
+    }, [page, fetchGames]);
 
-    const handleFetchNewDeals = async () => {
-        setIsLoading(true);
-        try { 
-            await axios.post(`${API_URL}/fetch-now`); 
-            fetchGames();
-            scrollToTop(); 
-        } catch(e) { 
-            alert('Ошибка парсинга!'); 
-            setIsLoading(false);
+    useEffect(() => {
+        const observer = new IntersectionObserver(
+            entries => {
+                if (entries[0].isIntersecting && hasMore && !isLoading) {
+                    setPage(prevPage => prevPage + 1);
+                }
+            },
+            { threshold: 1.0 }
+        );
+
+        if (observerTarget.current) {
+            observer.observe(observerTarget.current);
         }
-    };
+
+        return () => {
+            if (observerTarget.current) observer.disconnect();
+        };
+    }, [hasMore, isLoading]);
 
     return (
         <>
@@ -241,7 +247,7 @@ function App() {
                         <defs><linearGradient id="grad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stopColor="#b000ff"/><stop offset="100%" stopColor="#00fff0"/></linearGradient></defs>
                         <path d="M150 40 L280 240 L150 200 L20 240 Z" fill="url(#grad)" opacity="0.6"/>
                         <path d="M150 80 L240 220 L150 190 L60 220 Z" fill="url(#grad)" opacity="0.8"/>
-                    </svg>
+                     </svg>
                     <h1>Nebula Deals</h1>
                 </div>
                 <div className="header-buttons">
@@ -250,7 +256,7 @@ function App() {
                             className="currency-select" 
                             value={currency} 
                             onChange={(e) => {
-                                setCurrency(e.target.value);
+                                 setCurrency(e.target.value);
                                 setMinPrice('');
                                 setMaxPrice('');
                                 scrollToTop();
@@ -261,19 +267,11 @@ function App() {
                             <option value="UAH">UAH (₴)</option>
                         </select>
                     </div>
-
-                    <button className="btn-action" onClick={handleClearDB} style={{background: 'linear-gradient(45deg, #ff0055, #ff4400)'}}>
-                        Очистить БД
-                    </button>
-                    <button className="btn-action" onClick={handleFetchNewDeals}>
-                        Обновить скидки
-                    </button>
-                </div>
+                 </div>
             </header>
             
             <div className="main-container">
                 <aside className="filters-panel">
-                    {/* ФИКС 2: Добавили визуальный блок поиска в верстку перед фильтрами магазинов */}
                     <div className="filter-group">
                         <h3>Поиск</h3>
                         <div className="search-wrapper">
@@ -294,21 +292,18 @@ function App() {
                             <label className="filter-btn" onClick={handleSparks}>
                                 <input type="checkbox" className="store-checkbox" checked={stores.steam} onChange={() => {
                                     setStores(s => ({...s, steam: !s.steam}));
-                                    scrollToTop();
                                 }} />
                                 <span><div className="status-dot"></div> Steam</span>
                             </label>
                             <label className="filter-btn" onClick={handleSparks}>
                                 <input type="checkbox" className="store-checkbox" checked={stores.epic} onChange={() => {
                                     setStores(s => ({...s, epic: !s.epic}));
-                                    scrollToTop();
                                 }} />
                                 <span><div className="status-dot"></div> Epic Games</span>
                             </label>
                             <label className="filter-btn" onClick={handleSparks}>
                                 <input type="checkbox" className="store-checkbox" checked={stores.gog} onChange={() => {
                                     setStores(s => ({...s, gog: !s.gog}));
-                                    scrollToTop();
                                 }} />
                                 <span><div className="status-dot"></div> GOG</span>
                             </label>
@@ -327,6 +322,7 @@ function App() {
                             </div>
                         </div>
                     </div>
+                   
                     <div className="filter-group">
                         <h3>Минимальная скидка</h3>
                         <label style={{display: 'flex', alignItems: 'center', cursor: 'pointer'}}>
@@ -334,17 +330,15 @@ function App() {
                                 type="range" min="0" max="90" step="10" 
                                 value={minDiscount} 
                                 onChange={e => setMinDiscount(e.target.value)} 
-                                onMouseUp={scrollToTop} 
-                                onTouchEnd={scrollToTop} 
                             />
                             <span style={{marginLeft: '15px', fontWeight: 'bold', color: 'var(--accent-cyan)'}}>{minDiscount}%</span>
                         </label>
                     </div>
                 </aside>
                 
-                <div className={`grid-wrapper ${isLoading ? 'is-loading' : ''}`}>
+                <div className={`grid-wrapper ${isLoading && page === 1 ? 'is-loading' : ''}`}>
                     <div className="nebula-loader"></div>
-                    <main className={`games-grid ${isLoading ? 'updating' : ''}`}>
+                    <main className={`games-grid ${isLoading && page === 1 ? 'updating' : ''}`}>
                         {games.length === 0 && !isLoading ? (
                             <h2 style={{gridColumn: '1/-1', textAlign: 'center', color: '#888'}}>Игр не найдено 😕</h2>
                         ) : (
@@ -358,6 +352,12 @@ function App() {
                             ))
                         )}
                     </main>
+
+                    {hasMore && (
+                        <div ref={observerTarget} style={{ height: '40px', marginTop: '20px', display: 'flex', justifyContent: 'center' }}>
+                            {isLoading && page > 1 && <span style={{ color: 'var(--accent-cyan)' }}>Загружаем еще...</span>}
+                        </div>
+                    )}
                 </div>
             </div>
         </>
