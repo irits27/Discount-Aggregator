@@ -230,6 +230,7 @@ h1 {
     background: rgba(255, 255, 255, 0.03);
     border: 1px solid rgba(255, 255, 255, 0.1);
     transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    -webkit-user-select: none;
     user-select: none; 
     overflow: visible;
 }
@@ -341,6 +342,7 @@ input::-webkit-inner-spin-button {
 
 input[type=number] { 
     -moz-appearance: textfield; 
+    appearance: textfield;
 }
 
 input[type="range"] { 
@@ -401,6 +403,7 @@ input[type="range"] {
 .game-card { 
     background-color: var(--glass-bg); 
     backdrop-filter: blur(10px); 
+    -webkit-backdrop-filter: blur(10px); 
     border: 1px solid var(--glass-border); 
     border-radius: 16px; 
     overflow: hidden; 
@@ -449,6 +452,7 @@ input[type="range"] {
     font-weight: bold; 
     color: white; 
     backdrop-filter: blur(4px); 
+    -webkit-backdrop-filter: blur(4px); 
     box-shadow: 0 4px 10px rgba(0,0,0,0.5); 
 }
 
@@ -533,4 +537,46 @@ input[type="range"] {
 .buy-btn:hover { 
     background: rgba(255,255,255,0.1); 
     border-color: var(--accent-cyan); 
+}
+
+/*Search */
+.search-wrapper {
+    position: relative;
+    width: 100%;
+}
+
+.search-input {
+    width: 100%;
+    padding: 12px 40px 12px 15px;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid var(--glass-border);
+    color: white;
+    border-radius: 8px;
+    outline: none;
+    box-sizing: border-box;
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 0.3s ease;
+}
+
+.search-input:focus {
+    border-color: var(--accent-cyan);
+    background: rgba(0, 0, 0, 0.5);
+    box-shadow: 0 0 15px rgba(0, 255, 240, 0.2);
+}
+
+.search-icon {
+    position: absolute;
+    right: 15px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 14px;
+    opacity: 0.5;
+    pointer-events: none;
+    transition: 0.3s;
+}
+
+.search-input:focus + .search-icon {
+    opacity: 1;
+    text-shadow: 0 0 8px var(--accent-cyan);
 }

@@ -6,6 +6,8 @@ require('dotenv').config();
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const cron = require('node-cron');
+const rateLimit = require('express-rate-limit');
+
 
 puppeteer.use(StealthPlugin());
 
@@ -40,7 +42,15 @@ const gameSchema = new mongoose.Schema({
     lastUpdated: Number
 });
 
+const limiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 минут
+    max: 100, // Лимит: 100 запросов с одного IP
+    message: { error: 'Слишком много запросов с вашего IP, пожалуйста, подождите.' }
+});
+app.use('/api/', limiter);
+
 // ⚡ ОПТИМИЗАЦИЯ: Индексы для сверхбыстрой работы GET /api/games
+gameSchema.index({ title: 1 });
 gameSchema.index({ storeID: 1 });
 gameSchema.index({ 'prices.USD.sale': 1 });
 gameSchema.index({ 'prices.EUR.sale': 1 });
@@ -353,13 +363,20 @@ async function fetchAndSaveGames() {
 // 1. Получить игры
 app.get('/api/games', async (req, res) => {
     try {
-        const { store, minPrice, maxPrice, minDiscount, currency } = req.query;
+        const { store, minPrice, maxPrice, minDiscount, currency, search } = req.query;
         let query = {};
         
         if (store) query.storeID = { $in: store.split(',') };
 
+        if (search && search.trim() !== '') {
+
+            const escapedSearch = search.trim().replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+
+            query.title = { $regex: '^' + escapedSearch, $options: 'i' };
+        }
+
         const cur = currency || 'USD';
-        query[`prices.${cur}`] = { $exists: true }; // Отдаем только те игры, у которых есть запрошенная валюта
+        query[`prices.${cur}`] = { $exists: true }; 
 
         if (minPrice || maxPrice) {
             query[`prices.${cur}.sale`] = {};
@@ -375,28 +392,33 @@ app.get('/api/games', async (req, res) => {
         const games = await Game.find(query).limit(500); 
         res.json(games);
     } catch (e) {
+        console.error("Ошибка при поиске в БД:", e);
         res.status(500).json({ error: 'Database error' });
     }
 });
 
-// 2. Ручной запуск парсинга
-app.post('/api/fetch-now', async (req, res) => {
-    fetchAndSaveGames(); // Запускаем асинхронно
-    res.json({ message: 'Парсинг запущен в фоновом режиме!' });
-});
+// ==========================================
+// 🛡️ ОПАСНЫЕ РОУТЫ ЗАКОММЕНТИРОВАНЫ ДЛЯ ПРОДАКШЕНА
+// Раскомментируй их только если тестируешь проект локально на своем ПК
+// ==========================================
 
-// 3. Очистка базы
-app.post('/api/clear-database', async (req, res) => {
-    try {
-        await Game.deleteMany({});
-        res.json({ message: 'База данных очищена!' });
-    } catch (e) {
-        res.status(500).json({ error: 'Ошибка очистки' });
-    }
-});
+// // 2. Ручной запуск парсинга
+// app.post('/api/fetch-now', async (req, res) => {
+//     fetchAndSaveGames(); // Запускаем асинхронно
+//     res.json({ message: 'Парсинг запущен в фоновом режиме!' });
+// });
 
-// Авто-обновление раз в час
-cron.schedule('0 * * * *', () => {
+// // 3. Очистка базы
+// app.post('/api/clear-database', async (req, res) => {
+//     try {
+//         await Game.deleteMany({});
+//         res.json({ message: 'База данных очищена!' });
+//     } catch (e) {
+//         res.status(500).json({ error: 'Ошибка очистки' });
+//     }
+// });
+// Авто-обновление раз в 3 часа
+cron.schedule('0 */3 * * *', () => {
     console.log('⏰ Автоматический запуск парсинга...');
     fetchAndSaveGames();
 });

@@ -162,6 +162,7 @@ function App() {
     const [maxPrice, setMaxPrice] = useState('');
     const [minDiscount, setMinDiscount] = useState(0);
     const [currency, setCurrency] = useState('USD');
+    const [searchQuery, setSearchQuery] = useState('');
 
     const scrollToTop = () => window.scrollTo({ top: 0, behavior: 'smooth' });
 
@@ -171,6 +172,8 @@ function App() {
             const checkedStores = Object.keys(stores).filter(key => stores[key]).join(',');
             const params = new URLSearchParams();
             
+            if (searchQuery.trim()) params.append('search', searchQuery);
+
             if (checkedStores) params.append('store', checkedStores);
             if (minDiscount > 0) params.append('minDiscount', minDiscount);
             params.append('currency', currency);
@@ -194,7 +197,8 @@ function App() {
         } finally {
             setTimeout(() => setIsLoading(false), 300);
         }
-    }, [stores, minPrice, maxPrice, minDiscount, currency]);
+    // ФИКС 1: Добавили searchQuery в массив зависимостей, чтобы функция обновлялась при вводе
+    }, [stores, minPrice, maxPrice, minDiscount, currency, searchQuery]);
 
     useEffect(() => {
         const timeoutId = setTimeout(() => {
@@ -269,6 +273,21 @@ function App() {
             
             <div className="main-container">
                 <aside className="filters-panel">
+                    {/* ФИКС 2: Добавили визуальный блок поиска в верстку перед фильтрами магазинов */}
+                    <div className="filter-group">
+                        <h3>Поиск</h3>
+                        <div className="search-wrapper">
+                            <input 
+                                type="text" 
+                                placeholder="Название игры..." 
+                                value={searchQuery} 
+                                onChange={e => setSearchQuery(e.target.value)}
+                                className="search-input"
+                            />
+                            <span className="search-icon">🔍</span>
+                        </div>
+                    </div>
+
                     <div className="filter-group">
                         <h3>Магазины</h3>
                         <div className="filter-buttons-wrapper">
